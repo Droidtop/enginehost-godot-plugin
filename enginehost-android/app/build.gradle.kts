@@ -22,4 +22,5 @@ android {
 dependencies {
     implementation("org.godotengine:godot:4.7.1.stable")
     implementation("androidx.fragment:fragment:1.8.6")
+    compileOnly(project(":api"))
 }
