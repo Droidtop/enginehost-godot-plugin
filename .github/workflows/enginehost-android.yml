@@ -50,15 +50,19 @@ jobs:
           PY
           cp LICENSE.txt COPYRIGHT.txt build/payload/
           printf '%s' "$ENGINEHOST_SIGNING_KEY_PEM" > build/signing-key.pem
+          # The bundle identity is the metadata's, so a version branch
+          # cannot emit a file claiming to be a different release.
+          BUNDLE_ID=$(python3 -c "import json;print(json.load(open('enginehost/bundle-metadata.json'))['bundleId'])")
+          echo "BUNDLE_ID=$BUNDLE_ID" >> "$GITHUB_ENV"
           python3 enginehost-tooling/scripts/build-engine-bundle.py \
             --metadata enginehost/bundle-metadata.json --payload build/payload \
             --private-key build/signing-key.pem \
             --repository-key-document enginehost-public-key.json \
-            --output build/output/dev.enginehost.godot.v47.v1.enginehost.tar.xz \
+            --output "build/output/${BUNDLE_ID}.enginehost.tar.xz" \
             --release-envelope build/output/enginehost-release.json \
             --public-key-document build/output/enginehost-public-key.json
           cmp enginehost-public-key.json build/output/enginehost-public-key.json
       - uses: actions/upload-artifact@v4
         with:
-          name: enginehost-godot-4.7-v1
+          name: ${{ env.BUNDLE_ID }}
           path: build/output/*
