@@ -12,12 +12,15 @@ import org.json.JSONObject;
 public final class EngineHostGodotFragment extends GodotFragment {
     private final File gameRoot;
     private final File saveRoot;
+    private final File cacheRoot;
     private final String execFile;
     private final String optionsJson;
 
-    EngineHostGodotFragment(File gameRoot, File saveRoot, String execFile, String optionsJson) {
+    EngineHostGodotFragment(
+            File gameRoot, File saveRoot, File cacheRoot, String execFile, String optionsJson) {
         this.gameRoot = gameRoot;
         this.saveRoot = saveRoot;
+        this.cacheRoot = cacheRoot;
         this.execFile = execFile;
         this.optionsJson = optionsJson;
     }
@@ -26,11 +29,19 @@ public final class EngineHostGodotFragment extends GodotFragment {
         try {
             List<String> arguments = new ArrayList<>(super.getCommandLine());
             File pack = selectedPack();
+            if (pack == null && !new File(gameRoot, "project.godot").isFile()) {
+                // Godot's default export is a single executable with the
+                // pack appended. Extract it rather than rejecting the
+                // most common way Godot games are actually shipped.
+                GodotPackResolver.Pack embedded =
+                        GodotPackResolver.resolveEmbedded(gameRoot, cacheRoot);
+                if (embedded != null) pack = embedded.file;
+            }
             if (pack != null) {
                 arguments.add("--main-pack"); arguments.add(pack.getAbsolutePath());
             } else if (new File(gameRoot, "project.godot").isFile()) {
                 arguments.add("--path"); arguments.add(gameRoot.getAbsolutePath());
-            } else throw new IOException("No project.godot or selected PCK/ZIP");
+            } else throw new IOException("No project.godot, pack, or executable with an embedded pack");
             arguments.add("--user-data-dir"); arguments.add(saveRoot.getAbsolutePath());
             JSONArray extra = new JSONObject(optionsJson == null ? "{}" : optionsJson).optJSONArray("commandLine");
             if (extra != null) for (int i = 0; i < extra.length(); i++) {
