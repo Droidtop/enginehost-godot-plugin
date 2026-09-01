@@ -4,7 +4,7 @@ android {
     namespace = "dev.enginehost.plugin.godot"
     compileSdk = 36
     defaultConfig {
-        applicationId = "dev.enginehost.plugin.godot.v471.slot1"
+        applicationId = "dev.enginehost.plugin.godot.v451.slot1"
         minSdk = 26
         targetSdk = 34
         versionCode = 1
@@ -20,7 +20,7 @@ android {
 }
 
 dependencies {
-    implementation("org.godotengine:godot:4.7.1.stable")
+    implementation("org.godotengine:godot:4.5.1.stable")
     implementation("androidx.fragment:fragment:1.8.6")
     compileOnly(project(":api"))
 }
