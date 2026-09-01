@@ -11,15 +11,13 @@ import org.json.JSONObject;
 /** Godot fragment configured entirely from the resolved Enginehost session. */
 public final class EngineHostGodotFragment extends GodotFragment {
     private final File gameRoot;
-    private final File saveRoot;
     private final File cacheRoot;
     private final String execFile;
     private final String optionsJson;
 
     EngineHostGodotFragment(
-            File gameRoot, File saveRoot, File cacheRoot, String execFile, String optionsJson) {
+            File gameRoot, File cacheRoot, String execFile, String optionsJson) {
         this.gameRoot = gameRoot;
-        this.saveRoot = saveRoot;
         this.cacheRoot = cacheRoot;
         this.execFile = execFile;
         this.optionsJson = optionsJson;
@@ -42,7 +40,6 @@ public final class EngineHostGodotFragment extends GodotFragment {
             } else if (new File(gameRoot, "project.godot").isFile()) {
                 arguments.add("--path"); arguments.add(gameRoot.getAbsolutePath());
             } else throw new IOException("No project.godot, pack, or executable with an embedded pack");
-            arguments.add("--user-data-dir"); arguments.add(saveRoot.getAbsolutePath());
             JSONArray extra = new JSONObject(optionsJson == null ? "{}" : optionsJson).optJSONArray("commandLine");
             if (extra != null) for (int i = 0; i < extra.length(); i++) {
                 String value = extra.getString(i);

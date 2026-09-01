@@ -6,7 +6,7 @@ import dev.enginehost.api.EnginePluginSession;
 import java.io.File;
 import java.io.IOException;
 
-/** In-process Godot 4.7 runtime hosted by Enginehost's FragmentActivity. */
+/** In-process Godot runtime hosted by Enginehost's FragmentActivity. */
 public final class GodotEnginePlugin implements EnginePlugin {
     private EngineHostGodotFragment fragment;
 
@@ -19,8 +19,8 @@ public final class GodotEnginePlugin implements EnginePlugin {
         FragmentActivity activity = (FragmentActivity) session.host().context();
         if (session.display().getId() == android.view.View.NO_ID)
             session.display().setId(android.view.View.generateViewId());
-        fragment = new EngineHostGodotFragment(root, session.host().saveDirectory(),
-            session.host().cacheDirectory(), session.execFile(), session.optionsJson());
+        fragment = new EngineHostGodotFragment(root, session.host().cacheDirectory(),
+            session.execFile(), session.optionsJson());
         activity.getSupportFragmentManager().beginTransaction()
             .add(session.display().getId(), fragment, "enginehost-godot-runtime")
             .commitNow();
