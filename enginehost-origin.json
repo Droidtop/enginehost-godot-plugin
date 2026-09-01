@@ -1,0 +1,14 @@
+{
+  "description": "Enginehost plugin implementation repository for Godot Engine",
+  "engine": "godot",
+  "engineContexts": [
+    "standard"
+  ],
+  "formatVersion": 1,
+  "implementation": {
+    "id": "godot",
+    "name": "Godot Engine",
+    "upstream": "https://github.com/godotengine/godot"
+  },
+  "origin": "https://github.com/droidtop/enginehost-godot-plugin"
+}
