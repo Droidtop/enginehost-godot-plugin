@@ -1,0 +1,13 @@
+{
+  "algorithm": "SHA256withECDSA",
+  "formatVersion": 1,
+  "issuer": {
+    "algorithm": "SHA256withECDSA",
+    "id": "enginehost-official-v1",
+    "keySha256": "E01B8F3DB54F70F3AC5390EC63158F754FEF1E3716BDCB8DF45E20315651A803",
+    "signature": "MEYCIQCVTw5GMHoM18NcV5Fk8fplnPlSKzaPsSLF9EWfbaHw6wIhAI9p3EA51LWH6TEy2VYJpWGZaUn0KHcBnOgvsBn0/Wm/"
+  },
+  "keySha256": "E26BD9D28AC774FBC0AAF62ACAD79682445DB8EF5F61BAF3B5CC3769FAA0D0C2",
+  "origin": "https://github.com/droidtop/enginehost-godot-plugin",
+  "publicKeySpki": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAENIUzUbARx15OhgZ6aQb9aHXDWMuxbODSn/Dr7jTRmyPNT/d0X4fZw4sJE0QMXk9LGMXvUw12nz1LeWHDouGSew=="
+}
