@@ -1,23 +1,31 @@
 {
-  "bundleId": "dev.enginehost.godot.v47.v1",
+  "bundleId": "dev.enginehost.godot.v45.v1",
   "engine": "godot",
   "pluginVersion": "1.0.0",
   "apiVersion": 1,
   "entrypoint": "dev.enginehost.plugin.godot.GodotEnginePlugin",
   "origin": "https://github.com/droidtop/enginehost-godot-plugin",
-  "dexFiles": ["runtime/godot.apk"],
-  "resourceApks": ["runtime/godot.apk"],
+  "dexFiles": [
+    "runtime/godot.apk"
+  ],
+  "resourceApks": [
+    "runtime/godot.apk"
+  ],
   "capabilities": [
     {
-      "id": "godot-4.7-standard-v1",
+      "id": "godot-4.5-standard-v1",
       "engineContext": "standard",
-      "runtimeVersion": "4.7.1",
-      "supportedSeries": ["4.7"]
+      "runtimeVersion": "4.5.1",
+      "supportedSeries": [
+        "4.5"
+      ]
     }
   ],
   "source": {
     "upstream": "https://github.com/godotengine/godot",
     "revision": "4.7.1-stable"
   },
-  "licenses": ["MIT"]
+  "licenses": [
+    "MIT"
+  ]
 }
