@@ -54,7 +54,12 @@ jobs:
         run: 7za x -y swappy/godot-swappy.7z -o${{ github.workspace }}/thirdparty/swappy-frame-pacing
 
       - name: Stage the spine_godot module
-        run: cp -r spine-runtimes-src/spine-cpp/spine-cpp spine-runtimes-src/spine-godot/spine_godot/
+        # The module's SCsub resolves spine-cpp via "#../spine_godot", i.e.
+        # it must live in a directory named spine_godot next to the Godot
+        # tree, exactly as spine-runtimes' own setup.sh lays it out.
+        run: |
+          cp -r spine-runtimes-src/spine-cpp/spine-cpp spine-runtimes-src/spine-godot/spine_godot/
+          cp -r spine-runtimes-src/spine-godot/spine_godot "${{ github.workspace }}/../spine_godot"
 
       - name: Compilation
         uses: ./.github/actions/godot-build
@@ -63,7 +68,7 @@ jobs:
             arch=arm64
             swappy=yes
             tests=no
-            custom_modules=${{ github.workspace }}/spine-runtimes-src/spine-godot/spine_godot
+            custom_modules=${{ github.workspace }}/../spine_godot
           platform: android
           target: template_release
 
