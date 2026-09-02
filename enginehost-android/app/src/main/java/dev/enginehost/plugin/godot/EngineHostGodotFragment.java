@@ -14,24 +14,26 @@ public final class EngineHostGodotFragment extends GodotFragment {
     private static final String TAG = "EnginehostGodot";
 
     private final File gameRoot;
-    private final String execFile;
+    private final File pack;
     private final String optionsJson;
 
-    EngineHostGodotFragment(File gameRoot, String execFile, String optionsJson) {
+    /**
+     * @param pack what {@code --main-pack} should name, or null to open
+     *             {@code gameRoot} as a loose project
+     */
+    EngineHostGodotFragment(File gameRoot, File pack, String optionsJson) {
         this.gameRoot = gameRoot;
-        this.execFile = execFile;
+        this.pack = pack;
         this.optionsJson = optionsJson;
     }
 
     @Override public List<String> getCommandLine() {
         try {
             List<String> arguments = new ArrayList<>(super.getCommandLine());
-            GodotPackResolver.Pack pack = GodotPackResolver.resolve(gameRoot, execFile);
             if (pack != null) {
-                Log.i(TAG, "Loading pack " + pack.file.getAbsolutePath()
-                        + " (embedded=" + pack.embedded + ", built by " + pack.engineVersion + ")");
+                Log.i(TAG, "Loading pack " + pack.getAbsolutePath());
                 arguments.add("--main-pack");
-                arguments.add(pack.file.getAbsolutePath());
+                arguments.add(pack.getAbsolutePath());
             } else {
                 Log.i(TAG, "Loading project at " + gameRoot.getAbsolutePath());
                 arguments.add("--path");
