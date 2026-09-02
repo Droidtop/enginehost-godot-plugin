@@ -2,15 +2,47 @@
 
 This Enginehost bundle embeds the official Godot Android library
 `org.godotengine:godot:4.7.1.stable` and attaches its fragment directly to the
-host runtime process. It accepts a live game folder and
-runs either an unpacked `project.godot` project or a selected `.pck`/`.zip`
-through Godot's documented `--path` / `--main-pack` command line.
+host runtime process. It accepts a live game folder and runs it through Godot's
+documented `--path` / `--main-pack` command line.
 Additional engine settings may be passed as a string array in
 `options.commandLine`; they are appended after the plugin-selected project or
-pack argument.
+pack argument. A normal game needs none of them.
 
 The capability covers the Godot 4.7 series while retaining 4.7.1 as the exact
 runtime metric. Godot 3.x and other 4.x lines belong in co-installable bundles.
+
+## What the folder may hold
+
+`GodotPackResolver` is the only thing that decides what Godot is pointed at, in
+this order:
+
+1. the folder's `execFile`, when one is set;
+2. the folder's single `.pck` or `.zip`;
+3. a `project.godot`, which is opened with `--path`;
+4. otherwise, the first file in the folder carrying an appended pack.
+
+A self-contained export -- Godot's own default, a single executable with the
+`.pck` appended -- is handed to `--main-pack` as it lies. Godot's
+`PackedSourcePCK::try_open_pack` already looks for the `GDPC` trailer at the end
+of whatever it is given, so nothing is extracted and nothing is copied: pointing
+a 2.3 GB Windows `.exe` at the engine costs no disk and no first-launch wait.
+The carrier's own architecture is irrelevant, because only the appended data is
+read and the machine code is never loaded.
+
+Anything that resolves to no loadable pack fails before the engine starts, with
+a message naming what was looked for. It must never fail as an
+`IllegalArgumentException`: `GodotFragment.performEngineInitialization` reads
+that exception as "the APK expansion pack is missing" and replaces the game with
+its OBB downloader UI, so a launch error would vanish behind a progress bar for a
+download that cannot exist.
+
+## All Files Access
+
+Godot's Android file layer (`StorageScope`) refuses any path outside the app's
+own directories and shared storage unless the host holds All Files Access, no
+matter what the filesystem itself allows. Games live on removable storage, so
+the plugin checks for the permission up front and says so, rather than letting
+the engine start and then fail to open the pack it was handed.
 
 ## External packs and path overrides
 
