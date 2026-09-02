@@ -32,14 +32,46 @@ public final class GodotEnginePlugin implements EnginePlugin {
         GodotPackResolver.Pack pack = GodotPackResolver.resolve(root, session.execFile());
         FragmentActivity activity = (FragmentActivity) session.host().context();
         requireGodotCanRead(activity, pack == null ? root : pack.file);
+        requireRunnableHere(pack, session.runtimeVersion());
         attachResourcesWhereGodotLooks(activity, session.bundleDirectory());
         loadNativeRuntime(session.bundleDirectory());
         if (session.display().getId() == android.view.View.NO_ID)
             session.display().setId(android.view.View.generateViewId());
-        fragment = new EngineHostGodotFragment(root, session.execFile(), session.optionsJson());
+        fragment = new EngineHostGodotFragment(
+            root, pack == null ? null : pack.file, session.optionsJson());
         activity.getSupportFragmentManager().beginTransaction()
             .add(session.display().getId(), fragment, "enginehost-godot-runtime")
             .commitNow();
+    }
+
+    /**
+     * Godot refuses a pack from a later engine than the one reading it,
+     * and reports that as a failure to open the pack at all. The pack says
+     * which engine built it, so say the useful thing instead: which bundle
+     * this game needs.
+     */
+    private static void requireRunnableHere(GodotPackResolver.Pack pack, String runtimeVersion)
+            throws IOException {
+        if (pack == null || pack.engineVersion == null || runtimeVersion == null) return;
+        int[] built = series(pack.engineVersion);
+        int[] here = series(runtimeVersion);
+        if (built == null || here == null) return;
+        if (built[0] > here[0] || (built[0] == here[0] && built[1] > here[1])) {
+            throw new IOException("this game was built with Godot " + pack.engineVersion
+                    + ", and this bundle runs " + runtimeVersion + ". Install the Godot "
+                    + built[0] + "." + built[1] + " bundle and launch it again.");
+        }
+    }
+
+    /** The major and minor of a dotted version, or null if unreadable. */
+    private static int[] series(String version) {
+        String[] parts = version.split("\\.");
+        if (parts.length < 2) return null;
+        try {
+            return new int[] { Integer.parseInt(parts[0]), Integer.parseInt(parts[1]) };
+        } catch (NumberFormatException unreadable) {
+            return null;
+        }
     }
 
     /**
