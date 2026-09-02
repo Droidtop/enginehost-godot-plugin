@@ -24,6 +24,19 @@ android {
         // will never be.
         additionalParameters += listOf("--package-id", "0x80", "--allow-reserved-package-id")
     }
+    packaging {
+        jniLibs {
+            // CI drops a source-built libgodot_android.so (Godot 4.5.1 with
+            // the spine_godot module compiled in) into src/main/jniLibs.
+            // The org.godotengine AAR carries the stock library at the same
+            // path; the app source set is merged first, so pickFirst keeps
+            // the spine-enabled build.
+            pickFirsts += listOf(
+                "lib/arm64-v8a/libgodot_android.so",
+                "lib/arm64-v8a/libc++_shared.so",
+            )
+        }
+    }
 }
 
 dependencies {
