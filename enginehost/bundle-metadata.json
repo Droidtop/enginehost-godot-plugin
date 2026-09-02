@@ -15,6 +15,15 @@
       "supportedSeries": ["4.7"]
     }
   ],
+  "declaredOptions": [
+    {
+      "key": "commandLine",
+      "label": "Extra engine arguments",
+      "type": "string",
+      "repeats": true,
+      "description": "Godot command line arguments appended after the pack or project path, one entry per argument (EngineHostGodotFragment.java:43)."
+    }
+  ],
   "source": {
     "upstream": "https://github.com/godotengine/godot",
     "revision": "4.7.1-stable"
