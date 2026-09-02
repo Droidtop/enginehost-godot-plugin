@@ -30,6 +30,7 @@ jobs:
       - name: Build embedded Godot runtime APK
         run: gradle -p enginehost-android :app:assembleDebug --no-daemon --stacktrace
       - name: Build signed Enginehost bundle
+        if: startsWith(github.ref, 'refs/heads/plugin/')
         env:
           ENGINEHOST_SIGNING_KEY_PEM: ${{ secrets.ENGINEHOST_SIGNING_KEY_PEM }}
         run: |
@@ -63,6 +64,7 @@ jobs:
             --public-key-document build/output/enginehost-public-key.json
           cmp enginehost-public-key.json build/output/enginehost-public-key.json
       - uses: actions/upload-artifact@v4
+        if: startsWith(github.ref, 'refs/heads/plugin/')
         with:
           name: ${{ env.BUNDLE_ID }}
           path: build/output/*
