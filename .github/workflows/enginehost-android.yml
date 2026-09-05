@@ -228,15 +228,23 @@ jobs:
           REQUESTED_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
-          # This job needs: bundle, so by the time it runs the signed bundle
-          # artifact must exist; a missing one means the upload or the download
-          # is broken, not that there was nothing to publish. Fail loudly instead
-          # of the silent success that hid this exact break before.
+          # This job needs: bundle. A plugin/* line's bundle job always
+          # produces a signed bundle, so a missing one there means the
+          # upload or the download is broken -- fail loudly instead of the
+          # silent success that hid this exact break (run 51). plugin-core
+          # itself is the wrapper trunk: pushed directly it carries no engine
+          # version to bundle, by design (see the bundle job's own
+          # startsWith(github.ref, 'refs/heads/plugin/') guard), so that case
+          # alone stays a no-op.
           mkdir -p release
           bundle="$(find release -name '*.enginehost.tar.xz' -print -quit)"
           if [ -z "$bundle" ]; then
-            echo "::error::No signed bundle artifact found to publish; the bundle job should have produced one." >&2
-            exit 1
+            if [[ "$GITHUB_REF" == refs/heads/plugin/* ]]; then
+              echo "::error::No signed bundle artifact found to publish; the bundle job should have produced one on $GITHUB_REF." >&2
+              exit 1
+            fi
+            echo "$GITHUB_REF carries no engine version to bundle (not a plugin/* line); nothing to publish."
+            exit 0
           fi
           id="$(basename "$bundle" .enginehost.tar.xz)"
           envelope="$(find release -name 'enginehost-release.json' -print -quit)"
@@ -299,15 +307,23 @@ jobs:
           REQUESTED_TAG: 
         run: |
           set -euo pipefail
-          # This job needs: bundle, so by the time it runs the signed bundle
-          # artifact must exist; a missing one means the upload or the download
-          # is broken, not that there was nothing to publish. Fail loudly instead
-          # of the silent success that hid this exact break before.
+          # This job needs: bundle. A plugin/* line's bundle job always
+          # produces a signed bundle, so a missing one there means the
+          # upload or the download is broken -- fail loudly instead of the
+          # silent success that hid this exact break (run 51). plugin-core
+          # itself is the wrapper trunk: pushed directly it carries no engine
+          # version to bundle, by design (see the bundle job's own
+          # startsWith(github.ref, 'refs/heads/plugin/') guard), so that case
+          # alone stays a no-op.
           mkdir -p release
           bundle="$(find release -name '*.enginehost.tar.xz' -print -quit)"
           if [ -z "$bundle" ]; then
-            echo "::error::No signed bundle artifact found to publish; the bundle job should have produced one." >&2
-            exit 1
+            if [[ "$GITHUB_REF" == refs/heads/plugin/* ]]; then
+              echo "::error::No signed bundle artifact found to publish; the bundle job should have produced one on $GITHUB_REF." >&2
+              exit 1
+            fi
+            echo "$GITHUB_REF carries no engine version to bundle (not a plugin/* line); nothing to publish."
+            exit 0
           fi
           id="$(basename "$bundle" .enginehost.tar.xz)"
           envelope="$(find release -name 'enginehost-release.json' -print -quit)"
