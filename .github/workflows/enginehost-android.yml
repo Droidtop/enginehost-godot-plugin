@@ -208,7 +208,11 @@ jobs:
     # means used with real games on hardware; testing means it runs games
     # but has not been lived with. Enginehost offers each person the channel
     # they chose in Settings and every steadier one.
-    needs: spine-runtime
+    #
+    # Depends on bundle, not spine-runtime: this job used to race the bundle
+    # build (both only waited on spine-runtime), so it always ran before the
+    # signed bundle existed and "published" nothing. See the guard below.
+    needs: bundle
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish }}
     runs-on: ubuntu-latest
     permissions:
@@ -224,13 +228,15 @@ jobs:
           REQUESTED_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
-          # No artifact at all (a branch whose build makes no bundle) means no
-          # release directory either; that is "nothing to publish", not an error.
+          # This job needs: bundle, so by the time it runs the signed bundle
+          # artifact must exist; a missing one means the upload or the download
+          # is broken, not that there was nothing to publish. Fail loudly instead
+          # of the silent success that hid this exact break before.
           mkdir -p release
           bundle="$(find release -name '*.enginehost.tar.xz' -print -quit)"
           if [ -z "$bundle" ]; then
-            echo "This branch's build produced no signed bundle; nothing to publish."
-            exit 0
+            echo "::error::No signed bundle artifact found to publish; the bundle job should have produced one." >&2
+            exit 1
           fi
           id="$(basename "$bundle" .enginehost.tar.xz)"
           envelope="$(find release -name 'enginehost-release.json' -print -quit)"
@@ -275,7 +281,9 @@ jobs:
     # the unstable channel, replacing the previous one, so a person who opted
     # into unstable in Enginehost sees each build the moment CI is done with
     # it. Branches whose build makes no bundle publish nothing.
-    needs: spine-runtime
+    #
+    # Depends on bundle, not spine-runtime: see the comment on the publish job.
+    needs: bundle
     if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
     permissions:
@@ -291,13 +299,15 @@ jobs:
           REQUESTED_TAG: 
         run: |
           set -euo pipefail
-          # No artifact at all (a branch whose build makes no bundle) means no
-          # release directory either; that is "nothing to publish", not an error.
+          # This job needs: bundle, so by the time it runs the signed bundle
+          # artifact must exist; a missing one means the upload or the download
+          # is broken, not that there was nothing to publish. Fail loudly instead
+          # of the silent success that hid this exact break before.
           mkdir -p release
           bundle="$(find release -name '*.enginehost.tar.xz' -print -quit)"
           if [ -z "$bundle" ]; then
-            echo "This branch's build produced no signed bundle; nothing to publish."
-            exit 0
+            echo "::error::No signed bundle artifact found to publish; the bundle job should have produced one." >&2
+            exit 1
           fi
           id="$(basename "$bundle" .enginehost.tar.xz)"
           envelope="$(find release -name 'enginehost-release.json' -print -quit)"
