@@ -7,3 +7,4 @@ dependencyResolutionManagement {
 }
 rootProject.name = "enginehost-godot-plugin"
 include(":app")
+include(":api")
