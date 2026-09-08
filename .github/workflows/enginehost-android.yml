@@ -5,6 +5,20 @@ on:
     branches: [plugin-core, "plugin/**"]
   pull_request:
   workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish this signed bundle to the selected channel"
+        type: boolean
+        default: false
+      channel:
+        description: "Release channel"
+        type: choice
+        options: [stable, testing]
+        default: testing
+      tag:
+        description: "Base release tag; the channel suffix is added when needed"
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -62,3 +76,63 @@ jobs:
         with:
           name: enginehost-godot-4.7-v1
           path: build/output/*
+
+  publish:
+    needs: bundle
+    if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish) }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+      - name: Publish signed Enginehost bundle
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_CHANNEL: ${{ inputs.channel }}
+          REQUESTED_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          bundle="$(find release -name '*.enginehost.tar.xz' -print -quit)"
+          envelope="$(find release -name 'enginehost-release.json' -print -quit)"
+          keydoc="$(find release -name 'enginehost-public-key.json' -print -quit)"
+          test -f "$bundle" && test -f "$envelope" && test -f "$keydoc"
+          channel=unstable
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            channel="$REQUESTED_CHANNEL"
+          fi
+          python3 - "$envelope" "$channel" <<'PY'
+          import json, sys
+          path, channel = sys.argv[1], sys.argv[2]
+          data = json.load(open(path))
+          data["channel"] = channel
+          json.dump(data, open(path, "w"), indent=2)
+          PY
+          id="$(basename "$bundle" .enginehost.tar.xz)"
+          tag="$REQUESTED_TAG"
+          if [ -z "$tag" ]; then
+            tag="$(printf '%s' "$id" | sed 's/^dev\.enginehost\.//; s/\./-/g')"
+          fi
+          prerelease=""
+          case "$channel" in
+            stable) ;;
+            testing) [[ "$tag" == *-testing ]] || tag="$tag-testing"; prerelease="--prerelease" ;;
+            unstable) [[ "$tag" == *-unstable ]] || tag="$tag-unstable"; prerelease="--prerelease" ;;
+            *) echo "unknown channel: $channel" >&2; exit 1 ;;
+          esac
+          notes="Signed Enginehost bundle \`$id\` on the **$channel** channel, built from \`${{ github.ref_name }}\` at \`${{ github.sha }}\` (build ${{ github.run_number }})."
+          if [ "$channel" = unstable ] || [ "$channel" = testing ]; then
+            gh release delete "$tag" --repo "${{ github.repository }}" --yes --cleanup-tag 2>/dev/null || true
+            gh release create "$tag" "$bundle" "$envelope" "$keydoc" \
+              --repo "${{ github.repository }}" --target "${{ github.sha }}" \
+              --title "$id ($channel)" $prerelease --notes "$notes"
+          elif gh release view "$tag" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release upload "$tag" "$bundle" "$envelope" "$keydoc" \
+              --repo "${{ github.repository }}" --clobber
+            gh release edit "$tag" --repo "${{ github.repository }}" --notes "$notes"
+          else
+            gh release create "$tag" "$bundle" "$envelope" "$keydoc" \
+              --repo "${{ github.repository }}" --target "${{ github.sha }}" \
+              --title "$id ($channel)" $prerelease --notes "$notes"
+          fi
