@@ -38,9 +38,21 @@ concurrency:
 
 jobs:
   spine-runtime:
-    name: Godot runtime with spine_godot (arm64)
+    # One bundle carries every ABI it supports and the host picks lib/<abi>
+    # from Build.SUPPORTED_ABIS, so the runtime is compiled once per ABI.
+    # Godot's own Android export templates ship both of these; `arch` is the
+    # SCons name and `abi` is the directory Godot writes the library into.
+    name: Godot runtime with spine_godot (${{ matrix.abi }})
     runs-on: ubuntu-latest
     timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            abi: arm64-v8a
+          - arch: x86_64
+            abi: x86_64
     steps:
       - uses: actions/checkout@v4
 
@@ -63,7 +75,7 @@ jobs:
       - name: Restore Godot build cache
         uses: ./.github/actions/godot-cache-restore
         with:
-          cache-name: enginehost-spine-android-arm64
+          cache-name: enginehost-spine-android-${{ matrix.arch }}
         continue-on-error: true
 
       - name: Setup Python and SCons
@@ -92,7 +104,7 @@ jobs:
         uses: ./.github/actions/godot-build
         with:
           scons-flags: >-
-            arch=arm64
+            arch=${{ matrix.arch }}
             swappy=yes
             tests=no
             custom_modules=${{ github.workspace }}/../spine_godot
@@ -102,26 +114,26 @@ jobs:
       - name: Save Godot build cache
         uses: ./.github/actions/godot-cache-save
         with:
-          cache-name: enginehost-spine-android-arm64
+          cache-name: enginehost-spine-android-${{ matrix.arch }}
         continue-on-error: true
 
       - name: Verify the runtime actually contains spine
         run: |
-          LIB=platform/android/java/lib/libs/release/arm64-v8a/libgodot_android.so
+          LIB=platform/android/java/lib/libs/release/${{ matrix.abi }}/libgodot_android.so
           test -f "$LIB"
           strings -a "$LIB" | grep -q SpineSkeletonDataResource
           strings -a "$LIB" | grep -q SpineSprite
 
       - name: Stage artifact
         run: |
-          mkdir -p spine-runtime-out/arm64-v8a
-          cp platform/android/java/lib/libs/release/arm64-v8a/libgodot_android.so spine-runtime-out/arm64-v8a/
-          cp platform/android/java/lib/libs/release/arm64-v8a/libc++_shared.so spine-runtime-out/arm64-v8a/
+          mkdir -p spine-runtime-out/${{ matrix.abi }}
+          cp platform/android/java/lib/libs/release/${{ matrix.abi }}/libgodot_android.so spine-runtime-out/${{ matrix.abi }}/
+          cp platform/android/java/lib/libs/release/${{ matrix.abi }}/libc++_shared.so spine-runtime-out/${{ matrix.abi }}/
           cp spine-runtimes-src/LICENSE spine-runtime-out/LICENSE-spine-runtimes.txt
 
       - uses: actions/upload-artifact@v4
         with:
-          name: spine-godot-runtime-arm64
+          name: spine-godot-runtime-${{ matrix.abi }}
           path: spine-runtime-out/*
 
   bundle:
@@ -134,9 +146,12 @@ jobs:
           repository: Droidtop/enginehost
           ref: codex/engine-bundles
           path: enginehost-tooling
+      # Both ABIs' artifacts merge into one spine-runtime tree, each under its
+      # own lib/<abi> directory.
       - uses: actions/download-artifact@v4
         with:
-          name: spine-godot-runtime-arm64
+          pattern: spine-godot-runtime-*
+          merge-multiple: true
           path: spine-runtime
       - uses: actions/setup-java@v4
         with:
@@ -148,9 +163,11 @@ jobs:
           gradle-version: "8.13"
       - name: Put the spine-enabled runtime where the APK picks it up
         run: |
-          mkdir -p enginehost-android/app/src/main/jniLibs/arm64-v8a
-          cp spine-runtime/arm64-v8a/libgodot_android.so enginehost-android/app/src/main/jniLibs/arm64-v8a/
-          cp spine-runtime/arm64-v8a/libc++_shared.so enginehost-android/app/src/main/jniLibs/arm64-v8a/
+          for abi in arm64-v8a x86_64; do
+            mkdir -p "enginehost-android/app/src/main/jniLibs/$abi"
+            cp "spine-runtime/$abi/libgodot_android.so" "enginehost-android/app/src/main/jniLibs/$abi/"
+            cp "spine-runtime/$abi/libc++_shared.so" "enginehost-android/app/src/main/jniLibs/$abi/"
+          done
       - name: Build embedded Godot runtime APK
         run: gradle -p enginehost-android :app:assembleDebug --no-daemon --stacktrace
       - name: Verify the APK packaged the spine-enabled runtime
@@ -158,11 +175,14 @@ jobs:
           python3 - <<'PY'
           import hashlib, pathlib, sys, zipfile
           apk = zipfile.ZipFile('enginehost-android/app/build/outputs/apk/debug/app-debug.apk')
-          packed = hashlib.sha256(apk.read('lib/arm64-v8a/libgodot_android.so')).hexdigest()
-          built = hashlib.sha256(pathlib.Path('spine-runtime/arm64-v8a/libgodot_android.so').read_bytes()).hexdigest()
-          if packed != built:
-              sys.exit('APK packaged the stock Godot runtime, not the spine-enabled build')
-          print('APK carries the spine-enabled runtime:', packed)
+          # Every ABI, so a bundle cannot ship one spine-enabled runtime and
+          # one stock one and fail only on the other kind of device.
+          for abi in ('arm64-v8a', 'x86_64'):
+              packed = hashlib.sha256(apk.read(f'lib/{abi}/libgodot_android.so')).hexdigest()
+              built = hashlib.sha256(pathlib.Path(f'spine-runtime/{abi}/libgodot_android.so').read_bytes()).hexdigest()
+              if packed != built:
+                  sys.exit(f'APK packaged the stock Godot runtime for {abi}, not the spine-enabled build')
+              print(f'APK carries the spine-enabled runtime for {abi}:', packed)
           PY
       - name: Build signed Enginehost bundle
         env:
@@ -183,6 +203,10 @@ jobs:
                   target.parent.mkdir(parents=True, exist_ok=True)
                   target.write_bytes(apk.read(info))
           PY
+          # Both ABIs are the rule, not a preference: a bundle that lost one
+          # would install and then fail to load on half the devices.
+          test -f build/payload/lib/arm64-v8a/libgodot_android.so
+          test -f build/payload/lib/x86_64/libgodot_android.so
           cp LICENSE.txt COPYRIGHT.txt build/payload/
           cp spine-runtime/LICENSE-spine-runtimes.txt build/payload/
           printf '%s' "$ENGINEHOST_SIGNING_KEY_PEM" > build/signing-key.pem
