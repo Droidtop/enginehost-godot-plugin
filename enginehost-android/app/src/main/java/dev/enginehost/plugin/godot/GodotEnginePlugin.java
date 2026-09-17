@@ -34,6 +34,13 @@ public final class GodotEnginePlugin implements EnginePlugin {
         requireGodotCanRead(activity, pack == null ? root : pack.file);
         requireRunnableHere(pack, session.runtimeVersion());
         attachResourcesWhereGodotLooks(activity, session.bundleDirectory());
+        // Where user:// goes: the save folder the person chose in Enginehost.
+        // The engine reads this in OS_Android::get_user_data_dir and puts the
+        // project's own user directory inside it, as it does on a desktop.
+        // Exported before the engine library loads, so it is there whenever
+        // the engine first asks.
+        android.system.Os.setenv("ENGINEHOST_SAVE_PATH",
+                session.host().saveDirectory().getAbsolutePath(), true);
         loadNativeRuntime(session.bundleDirectory());
         if (session.display().getId() == android.view.View.NO_ID)
             session.display().setId(android.view.View.generateViewId());
