@@ -1,27 +1,37 @@
 package dev.enginehost.plugin.godot;
 
+import android.os.Bundle;
 import android.util.Log;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.FrameLayout;
+import androidx.fragment.app.Fragment;
+import dev.enginehost.api.EngineHost;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-import dev.enginehost.api.EngineHost;
 import org.godotengine.godot.Godot;
+import org.godotengine.godot.GodotHost;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * Godot fragment configured entirely from the resolved Enginehost session.
+ * Hosts the Godot engine, configured entirely from the resolved Enginehost
+ * session.
  *
- * On this engine line the fragment IS the engine: {@code Godot extends
- * Fragment}. GodotFragment, and a GodotHost the fragment itself implements,
- * arrive with 4.2; here the host is looked for only in the parent fragment
- * and the activity (Godot.onAttach), and Enginehost's activity is neither.
- * So the two things the later lines answer through GodotHost are answered by
- * overriding the engine's own methods: getCommandLine() and restart().
+ * On this engine line the engine is itself a fragment ({@code Godot extends
+ * Fragment}) and takes its command line and its restart requests from a
+ * GodotHost it looks for in exactly two places: its parent fragment and its
+ * activity (Godot.onAttach). GodotFragment, which is its own host, arrives
+ * with 4.2. Enginehost's activity is not a GodotHost, so this fragment is the
+ * parent: it holds the engine as its one child, which is the arrangement
+ * upstream's interface was written for.
  */
-public final class EngineHostGodotFragment extends Godot {
+public final class EngineHostGodotFragment extends Fragment implements GodotHost {
     private static final String TAG = "EnginehostGodot";
+    private static final String ENGINE = "godot-engine";
 
     private final File gameRoot;
     private final File pack;
@@ -39,26 +49,58 @@ public final class EngineHostGodotFragment extends Godot {
         this.host = host;
     }
 
+    @Override public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle state) {
+        FrameLayout frame = new FrameLayout(requireContext());
+        frame.setId(View.generateViewId());
+        return frame;
+    }
+
     /**
-     * A game that asks the engine to restart (OS.set_restart_on_exit, a
-     * language change that needs a clean engine) arrives here from the native
-     * side, and upstream's body only forwards to a GodotHost this fragment
-     * does not have: the engine has already stopped drawing, so the person
-     * would be left on a black screen for good (rig, 2026-09-18, the 4.4
-     * line, Anomalous Coffee Machine 2's language dialog). Upstream's own app
-     * answers by killing its process and relaunching
-     * (FullScreenGodotApp.onGodotRestartRequested), because the engine cannot
-     * be de-initialised in place. Enginehost owns the process, so it is asked
-     * to do the same. Called on the render thread; the host works on the UI
-     * thread.
+     * commitNow, so a launch the engine refuses (getCommandLine below throws
+     * from Godot.onCreate) leaves through the plugin's own commitNow and
+     * reaches Enginehost as this plugin's startup error, message intact.
      */
-    @Override public void restart() {
+    @Override public void onViewCreated(View view, Bundle state) {
+        if (getChildFragmentManager().findFragmentByTag(ENGINE) != null) return;
+        getChildFragmentManager().beginTransaction()
+                .add(view.getId(), new Godot(), ENGINE)
+                .commitNow();
+    }
+
+    /**
+     * A game that restarts itself (OS.set_restart_on_exit, then quit: a
+     * language change that needs a clean engine) does not arrive as a restart
+     * request. The native side leaves it to Main::cleanup
+     * (java_godot_lib_jni.cpp, "Whether restarting is handled by
+     * Main::cleanup()"), which calls OS::create_instance with the game's
+     * restart arguments, and that lands here. On this line upstream's own
+     * game app leaves GodotHost's default in place, which does nothing, and
+     * the engine is already gone: the last frame stays on screen for good
+     * (rig, 2026-09-18, the 4.4 line, Anomalous Coffee Machine 2's language
+     * dialog). On a desktop the same call starts the game again with those
+     * arguments, and from 4.2 upstream's Android app does too, by process
+     * rebirth, because the engine cannot be de-initialised in place.
+     * Enginehost owns the process, so it is asked to do that. Anything but
+     * -1 is success to create_instance.
+     */
+    @Override public int onNewGodotInstanceRequested(String[] args) {
+        restartGame(args == null ? new String[0] : args);
+        return 0;
+    }
+
+    /** The engine's own restart (a lost rendering context): same answer, no arguments. */
+    @Override public void onGodotRestartRequested(Godot instance) {
+        restartGame(new String[0]);
+    }
+
+    /** Called on the render thread; the host works on the UI thread. */
+    private void restartGame(String[] arguments) {
         android.app.Activity activity = getActivity();
         if (activity == null) return;
         activity.runOnUiThread(() -> {
             Log.i(TAG, "The game asked to be restarted");
             try {
-                host.restart();
+                host.restart(arguments);
             } catch (IncompatibleClassChangeError olderHost) {
                 // An Enginehost from before restart() existed. This plugin
                 // compiles against its own copy of the interface and runs
@@ -73,9 +115,20 @@ public final class EngineHostGodotFragment extends Godot {
         });
     }
 
-    @Override protected String[] getCommandLine() {
+    /** What the run before this one passed to restart; none on an older Enginehost. */
+    private String[] restartArguments() {
         try {
-            List<String> arguments = new ArrayList<>(java.util.Arrays.asList(super.getCommandLine()));
+            String[] arguments = host.restartArguments();
+            return arguments == null ? new String[0] : arguments;
+        } catch (IncompatibleClassChangeError olderHost) {
+            return new String[0];
+        }
+    }
+
+    /** Appended by the engine to whatever its own {@code _cl_} asset holds (here, nothing). */
+    @Override public List<String> getCommandLine() {
+        try {
+            List<String> arguments = new ArrayList<>();
             if (pack != null) {
                 Log.i(TAG, "Loading pack " + pack.getAbsolutePath());
                 arguments.add("--main-pack");
@@ -96,11 +149,11 @@ public final class EngineHostGodotFragment extends Godot {
                     arguments.add(value);
                 }
             }
-            return arguments.toArray(new String[0]);
+            // Last, as upstream's rebirth makes them the new instance's
+            // command line: what the game itself asked to be restarted with.
+            for (String value : restartArguments()) arguments.add(value);
+            return arguments;
         } catch (Exception error) {
-            // Godot.onCreate calls this unguarded on this engine line, so
-            // the failure leaves the fragment transaction and reaches
-            // Enginehost as this plugin's startup error, message intact.
             Log.e(TAG, "Godot launch could not be resolved", error);
             throw new IllegalStateException(
                     "Godot cannot start this game: " + error.getMessage(), error);
