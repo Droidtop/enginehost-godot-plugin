@@ -5,6 +5,8 @@ import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import dev.enginehost.api.EngineHost;
+import org.godotengine.godot.Godot;
 import org.godotengine.godot.GodotFragment;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -16,15 +18,50 @@ public final class EngineHostGodotFragment extends GodotFragment {
     private final File gameRoot;
     private final File pack;
     private final String optionsJson;
+    private final EngineHost host;
 
     /**
      * @param pack what {@code --main-pack} should name, or null to open
      *             {@code gameRoot} as a loose project
      */
-    EngineHostGodotFragment(File gameRoot, File pack, String optionsJson) {
+    EngineHostGodotFragment(File gameRoot, File pack, String optionsJson, EngineHost host) {
         this.gameRoot = gameRoot;
         this.pack = pack;
         this.optionsJson = optionsJson;
+        this.host = host;
+    }
+
+    /**
+     * A game that asks the engine to restart (OS.set_restart_on_exit, a
+     * language change that needs a clean engine) reaches GodotHost here, and
+     * GodotHost's default does nothing: the engine has already stopped
+     * drawing, so the person is left on a black screen for good (rig,
+     * 2026-09-18, Anomalous Coffee Machine 2's language dialog). Upstream's
+     * own app answers by killing its process and relaunching
+     * (GodotActivity.onGodotRestartRequested), because the engine cannot be
+     * de-initialised in place. Enginehost owns the process, so it is asked to
+     * do the same. Called on the render thread; the host works on the UI
+     * thread.
+     */
+    @Override public void onGodotRestartRequested(Godot instance) {
+        android.app.Activity activity = getActivity();
+        if (activity == null) return;
+        activity.runOnUiThread(() -> {
+            Log.i(TAG, "The game asked to be restarted");
+            try {
+                host.restart();
+            } catch (IncompatibleClassChangeError olderHost) {
+                // An Enginehost from before restart() existed. This plugin
+                // compiles against its own copy of the interface and runs
+                // against the host's, so the missing method surfaces as
+                // NoSuchMethodError (the interface does not declare it) or
+                // AbstractMethodError (declared, not implemented); both are
+                // IncompatibleClassChangeErrors. Closing the game is the
+                // honest outcome; a dead screen is not.
+                Log.w(TAG, "This Enginehost cannot restart a game; closing it instead");
+                host.finish();
+            }
+        });
     }
 
     @Override public List<String> getCommandLine() {
