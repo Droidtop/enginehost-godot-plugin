@@ -42,7 +42,7 @@ jobs:
     # from Build.SUPPORTED_ABIS, so the runtime is compiled once per ABI.
     # Godot's own Android export templates ship both of these; `arch` is the
     # SCons name and `abi` is the directory Godot writes the library into.
-    name: Godot runtime with spine_godot (${{ matrix.abi }})
+    name: Godot runtime (${{ matrix.abi }})
     runs-on: ubuntu-latest
     timeout-minutes: 180
     strategy:
@@ -56,15 +56,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The spine-godot runtime, pinned to the 4.2 branch that matches the
-      # Spine 4.2.x editor exports found in shipping Godot games. It is
-      # compiled into libgodot_android.so as an engine module, the same way
-      # those games' own desktop binaries embed it.
-      - uses: actions/checkout@v4
-        with:
-          repository: EsotericSoftware/spine-runtimes
-          ref: e7dc1435fa4a0083ab431f1b28e083c14a1f5c68
-          path: spine-runtimes-src
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -81,21 +72,12 @@ jobs:
       - name: Setup Python and SCons
         uses: ./.github/actions/godot-deps
 
-      - name: Stage the spine_godot module
-        # The module's SCsub resolves spine-cpp via "#../spine_godot", i.e.
-        # it must live in a directory named spine_godot next to the Godot
-        # tree, exactly as spine-runtimes' own setup.sh lays it out.
-        run: |
-          cp -r spine-runtimes-src/spine-cpp/spine-cpp spine-runtimes-src/spine-godot/spine_godot/
-          cp -r spine-runtimes-src/spine-godot/spine_godot "${{ github.workspace }}/../spine_godot"
-
       - name: Compilation
         uses: ./.github/actions/godot-build
         with:
           sconsflags: >-
             arch=${{ matrix.arch }}
             tests=no
-            custom_modules=${{ github.workspace }}/../spine_godot
           platform: android
           target: template_release
 
@@ -105,19 +87,11 @@ jobs:
           cache-name: enginehost-spine-android-${{ matrix.arch }}
         continue-on-error: true
 
-      - name: Verify the runtime actually contains spine
-        run: |
-          LIB=platform/android/java/lib/libs/release/${{ matrix.abi }}/libgodot_android.so
-          test -f "$LIB"
-          strings -a "$LIB" | grep -q SpineSkeletonDataResource
-          strings -a "$LIB" | grep -q SpineSprite
-
       - name: Stage artifact
         run: |
           mkdir -p spine-runtime-out/${{ matrix.abi }}
           cp platform/android/java/lib/libs/release/${{ matrix.abi }}/libgodot_android.so spine-runtime-out/${{ matrix.abi }}/
           cp platform/android/java/lib/libs/release/${{ matrix.abi }}/libc++_shared.so spine-runtime-out/${{ matrix.abi }}/
-          cp spine-runtimes-src/LICENSE spine-runtime-out/LICENSE-spine-runtimes.txt
 
       - uses: actions/upload-artifact@v4
         with:
@@ -203,7 +177,6 @@ jobs:
           test -f build/payload/lib/arm64-v8a/libgodot_android.so
           test -f build/payload/lib/x86_64/libgodot_android.so
           cp LICENSE.txt COPYRIGHT.txt build/payload/
-          cp spine-runtime/LICENSE-spine-runtimes.txt build/payload/
           printf '%s' "$ENGINEHOST_SIGNING_KEY_PEM" > build/signing-key.pem
           # The bundle identity is the metadata's, so a version branch
           # cannot emit a file claiming to be a different release.

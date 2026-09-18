@@ -19,24 +19,14 @@
       "supportedSeries": [
         "4.1"
       ],
-      "runtimeComponents": {
-        "spine-godot": "4.2"
-      }
+      "runtimeComponents": {}
     }
   ],
   "source": {
     "upstream": "https://github.com/godotengine/godot",
-    "revision": "4.1.4-stable",
-    "components": {
-      "spine-runtimes": {
-        "upstream": "https://github.com/EsotericSoftware/spine-runtimes",
-        "revision": "e7dc1435fa4a0083ab431f1b28e083c14a1f5c68",
-        "branch": "4.2"
-      }
-    }
+    "revision": "4.1.4-stable"
   },
   "licenses": [
-    "MIT",
-    "Spine Runtimes License"
+    "MIT"
   ]
 }
