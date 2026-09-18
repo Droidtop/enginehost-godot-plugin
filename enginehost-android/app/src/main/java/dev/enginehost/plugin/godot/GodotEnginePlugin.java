@@ -39,7 +39,7 @@ public final class GodotEnginePlugin implements EnginePlugin {
         if (session.display().getId() == android.view.View.NO_ID)
             session.display().setId(android.view.View.generateViewId());
         fragment = new EngineHostGodotFragment(
-            root, pack == null ? null : pack.file, session.optionsJson());
+            root, pack == null ? null : pack.file, session.optionsJson(), session.host());
         activity.getSupportFragmentManager().beginTransaction()
             .add(session.display().getId(), fragment, "enginehost-godot-runtime")
             .commitNow();
