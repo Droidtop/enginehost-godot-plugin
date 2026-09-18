@@ -30,6 +30,8 @@
 
 #include "os_android.h"
 
+#include "core/io/dir_access.h"
+
 #include "dir_access_jandroid.h"
 #include "display_server_android.h"
 #include "file_access_android.h"
@@ -679,6 +681,23 @@ String OS_Android::get_executable_path() const {
 
 String OS_Android::get_user_data_dir(const String &p_user_dir) const {
 	if (!data_dir_cache.is_empty()) {
+		return data_dir_cache;
+	}
+
+	// Under Enginehost one app runs every Godot game, so the app's own files
+	// directory cannot be user://: upstream ignores p_user_dir here (one app,
+	// one game), and every game's savegame.save and settings.cfg would land in
+	// the same private folder, overwrite each other, stay out of the person's
+	// reach and vanish with an uninstall. The wrapper exports the save folder
+	// the person chose in Enginehost; user:// is this project's own directory
+	// inside it, named exactly as the desktop names it
+	// (OS_Unix::get_user_data_dir: <data path>/<p_user_dir>, i.e.
+	// godot/app_userdata/<project name> or the project's custom user dir).
+	const char *enginehost_save_path = getenv("ENGINEHOST_SAVE_PATH");
+	if (enginehost_save_path && enginehost_save_path[0] != 0 && !p_user_dir.is_empty()) {
+		String data_dir = String::utf8(enginehost_save_path).path_join(p_user_dir);
+		DirAccess::make_dir_recursive_absolute(data_dir);
+		data_dir_cache = data_dir;
 		return data_dir_cache;
 	}
 
