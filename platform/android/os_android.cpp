@@ -30,6 +30,8 @@
 
 #include "os_android.h"
 
+#include "core/io/dir_access.h"
+
 #include "core/config/project_settings.h"
 #include "drivers/unix/dir_access_unix.h"
 #include "drivers/unix/file_access_unix.h"
@@ -570,6 +572,39 @@ String OS_Android::get_executable_path() const {
 
 String OS_Android::get_user_data_dir() const {
 	if (!data_dir_cache.is_empty()) {
+		return data_dir_cache;
+	}
+
+	// Under Enginehost one app runs every Godot game, so the app's own files
+	// directory cannot be user://: upstream returns it here (one app, one
+	// game), and every game's savegame.save and settings.cfg would land in the
+	// same private folder, overwrite each other, stay out of the person's
+	// reach and vanish with an uninstall. The wrapper exports the save folder
+	// the person chose in Enginehost; user:// is this project's own directory
+	// inside it, composed exactly as OS_Unix::get_user_data_dir composes it on
+	// a desktop from application/config/name, use_custom_user_dir and
+	// custom_user_dir_name (this engine line has no p_user_dir parameter).
+	const char *enginehost_save_path = getenv("ENGINEHOST_SAVE_PATH");
+	if (enginehost_save_path && enginehost_save_path[0] != 0) {
+		String base = String::utf8(enginehost_save_path);
+		String appname = get_safe_dir_name(GLOBAL_GET("application/config/name"));
+		String data_dir;
+		if (!appname.is_empty()) {
+			bool use_custom_dir = GLOBAL_GET("application/config/use_custom_user_dir");
+			if (use_custom_dir) {
+				String custom_dir = get_safe_dir_name(GLOBAL_GET("application/config/custom_user_dir_name"), true);
+				if (custom_dir.is_empty()) {
+					custom_dir = appname;
+				}
+				data_dir = base.path_join(custom_dir);
+			} else {
+				data_dir = base.path_join(get_godot_dir_name()).path_join("app_userdata").path_join(appname);
+			}
+		} else {
+			data_dir = base.path_join(get_godot_dir_name()).path_join("app_userdata").path_join("[unnamed project]");
+		}
+		DirAccess::make_dir_recursive_absolute(data_dir);
+		data_dir_cache = data_dir;
 		return data_dir_cache;
 	}
 

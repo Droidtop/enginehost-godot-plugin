@@ -39,6 +39,7 @@
 #include "api/jni_singleton.h"
 #include "core/config/engine.h"
 #include "core/config/project_settings.h"
+#include "core/object/script_language.h"
 #include "core/input/input.h"
 #include "dir_access_jandroid.h"
 #include "display_server_android.h"
@@ -53,6 +54,7 @@
 #include "tts_android.h"
 
 #include <android/input.h>
+#include <stdlib.h>
 #include <unistd.h>
 
 #include <android/native_window_jni.h>
@@ -144,8 +146,39 @@ JNIEXPORT void JNICALL Java_org_godotengine_godot_GodotLib_ondestroy(JNIEnv *env
 	_terminate(env, false);
 }
 
+// The key an encrypted pack needs is not stored with the pack: core_builders.py
+// compiles it into the export template as script_encryption_key, and
+// PackedSourcePCK::try_open_pack copies those 32 bytes to decrypt the pack's
+// file directory, as does FileAccessPack for each encrypted file
+// (core/io/file_access_pack.cpp). Under Enginehost one engine build runs games
+// exported by other people, so this build's own constant is never the one a
+// given game was encrypted with, and every encrypted pack would fail in
+// ProjectSettings::_setup with "Can't open encrypted pack directory".
+//
+// The wrapper recovers a game's key from the game's own executable and exports
+// it as 64 hexadecimal characters; it is applied here, before Main::setup opens
+// the main pack. With nothing exported the compiled constant stands and this
+// build behaves exactly as upstream does. The value is removed from the
+// environment once read and is never printed.
+static void _apply_enginehost_pack_key() {
+	const char *hex = getenv("ENGINEHOST_GODOT_PACK_KEY");
+	if (!hex || !hex[0]) {
+		return;
+	}
+	String text = String::utf8(hex).strip_edges();
+	unsetenv("ENGINEHOST_GODOT_PACK_KEY");
+	if (text.length() != 64 || !text.is_valid_hex_number(false)) {
+		ERR_PRINT("Ignoring ENGINEHOST_GODOT_PACK_KEY: a pack key is 64 hexadecimal characters.");
+		return;
+	}
+	for (int i = 0; i < 32; i++) {
+		script_encryption_key[i] = (uint8_t)text.substr(i * 2, 2).hex_to_int();
+	}
+}
+
 JNIEXPORT jboolean JNICALL Java_org_godotengine_godot_GodotLib_setup(JNIEnv *env, jclass clazz, jobjectArray p_cmdline) {
 	setup_android_thread();
+	_apply_enginehost_pack_key();
 
 	const char **cmdline = nullptr;
 	jstring *j_cmdline = nullptr;
