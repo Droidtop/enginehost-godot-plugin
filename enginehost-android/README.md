@@ -1,8 +1,9 @@
 # Godot 4.7.1 plugin
 
-This Enginehost bundle embeds the official Godot Android library
-`org.godotengine:godot:4.7.1.stable` and attaches its fragment directly to the
-host runtime process. It accepts a live game folder and runs it through Godot's
+This Enginehost bundle takes Godot's Java classes from the official Android
+library `org.godotengine:godot:4.7.1.stable`, pairs them with a native engine
+built from this tree, and attaches the fragment directly to the host runtime
+process. It accepts a live game folder and runs it through Godot's
 documented `--path` / `--main-pack` command line.
 Additional engine settings may be passed as a string array in
 `options.commandLine`; they are appended after the plugin-selected project or
@@ -92,15 +93,14 @@ Enginehost points Godot at a pack outside the APK, so the engine has to accept
 a `--main-pack` naming an arbitrary filesystem path. Whether it does depends on
 the Godot line, and it is the first thing to check when branching a new version.
 
-**4.6 and earlier** place no restriction on `--main-pack`. A version branch off
-one of these lines needs nothing beyond retargeting the Gradle dependency; the
-published Maven artifact serves.
+**4.5 and earlier** place no restriction on `--main-pack`.
 
-**4.7 and later** reject a `--main-pack` whose path does not resolve to
+**4.6 and later** reject a `--main-pack` whose path does not resolve to
 `FileAccess::ACCESS_RESOURCES`, unless the binary was compiled with the
-`disable_path_overrides=no` SCons option. The option was added in 4.7 and
+`disable_path_overrides=no` SCons option. The option was added in 4.6
+(present in `SConstruct` at 4.6.3-stable, absent at 4.5.1-stable) and
 defaults to disabling the overrides in export templates, so published artifacts
-from 4.7 on refuse an external pack with:
+from 4.6 on refuse an external pack with:
 
     --main-pack is attempting to load from outside of the executable, but this
     Godot binary was compiled without support for path overrides. Aborting.
@@ -109,14 +109,13 @@ No other command line avoids this. On Android `ACCESS_RESOURCES` is bound to
 `FileAccessAndroid`, which reads only the APK's own assets (see
 `initialize_core` in `platform/android/os_android.cpp`), and both redirects away
 from it are themselves behind `OVERRIDE_PATH_ENABLED`. So no `res://` path can
-reach an extracted pack, and `--path` is gated by the same define. A 4.7+ branch
-therefore cannot use the published Maven artifact for external packs; it needs
-`platform=android target=template_release disable_path_overrides=no` built from
-the Godot source this repository already carries.
-
-This branch is cut from 4.7.1 and is subject to that restriction: its bundle
-cannot load external packs until such a source build exists. Branches cut from
-4.6 and earlier, including `plugin/4.5`, are unaffected and work as shipped.
+reach an extracted pack, and `--path` is gated by the same define. The option
+arrives with 4.6 (`SConstruct`, `disable_path_overrides`, default on for export
+templates), so from this line on the published Maven native library cannot
+load an external pack: `Main::setup` aborts with "--main-pack is attempting to
+load from outside of the executable". This line's native engine is built from
+this tree with `disable_path_overrides=no` (the workflow's scons flags), and
+only the Java classes come from Maven.
 
 ## Save location
 

@@ -17,31 +17,26 @@
       "engineContext": "standard",
       "runtimeVersion": "4.7.1",
       "supportedSeries": [
-        "4.0",
-        "4.1",
-        "4.2",
-        "4.3",
-        "4.4",
-        "4.5",
-        "4.6",
         "4.7"
-      ]
-    }
-  ],
-  "declaredOptions": [
-    {
-      "key": "commandLine",
-      "label": "Extra engine arguments",
-      "type": "string",
-      "repeats": true,
-      "description": "Godot command line arguments appended after the pack or project path, one entry per argument (EngineHostGodotFragment.java:43)."
+      ],
+      "runtimeComponents": {
+        "spine-godot": "4.2"
+      }
     }
   ],
   "source": {
     "upstream": "https://github.com/godotengine/godot",
-    "revision": "4.7.1-stable"
+    "revision": "4.7.1-stable",
+    "components": {
+      "spine-runtimes": {
+        "upstream": "https://github.com/EsotericSoftware/spine-runtimes",
+        "revision": "e7dc1435fa4a0083ab431f1b28e083c14a1f5c68",
+        "branch": "4.2"
+      }
+    }
   },
   "licenses": [
-    "MIT"
+    "MIT",
+    "Spine Runtimes License"
   ]
 }
