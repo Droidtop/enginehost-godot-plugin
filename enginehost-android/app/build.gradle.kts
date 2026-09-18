@@ -27,12 +27,12 @@ android {
     packaging {
         jniLibs {
             // CI drops a source-built libgodot_android.so (Godot 4.1.4 with
-            // the spine_godot module compiled in) into src/main/jniLibs.
-            // The org.godotengine AAR carries the stock library at the same
+            // Enginehost's user:// and pack-key changes; stock otherwise,
+            // spine-godot needs a 4.2 header) into src/main/jniLibs. The
+            // org.godotengine AAR carries upstream's library at the same
             // path; the app source set is merged first, so pickFirst keeps
-            // the spine-enabled build.
-            // Every ABI the bundle ships, or the stock library from the AAR
-            // wins for the ones left out and that ABI silently loses spine.
+            // ours. Every ABI the bundle ships, or upstream's library wins
+            // for the ones left out and that ABI silently loses the changes.
             pickFirsts += listOf(
                 "lib/arm64-v8a/libgodot_android.so",
                 "lib/arm64-v8a/libc++_shared.so",
@@ -44,6 +44,12 @@ android {
 }
 
 dependencies {
+    // This engine library was built with Kotlin 1.6 and asks for
+    // kotlin-stdlib-jdk7/jdk8 1.6.21; androidx.fragment brings stdlib 1.8.22,
+    // which absorbed those two artifacts, and the same classes then arrive
+    // twice (checkDuplicateClasses). The BOM moves jdk7/jdk8 to 1.8.22,
+    // where they are empty.
+    implementation(platform("org.jetbrains.kotlin:kotlin-bom:1.8.22"))
     implementation("org.godotengine:godot:4.1.4.stable")
     implementation("androidx.fragment:fragment:1.8.6")
     compileOnly(project(":api"))
