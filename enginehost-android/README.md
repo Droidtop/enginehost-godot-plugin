@@ -93,15 +93,14 @@ Enginehost points Godot at a pack outside the APK, so the engine has to accept
 a `--main-pack` naming an arbitrary filesystem path. Whether it does depends on
 the Godot line, and it is the first thing to check when branching a new version.
 
-**4.6 and earlier** place no restriction on `--main-pack`. A version branch off
-one of these lines needs nothing beyond retargeting the Gradle dependency; the
-published Maven artifact serves.
+**4.5 and earlier** place no restriction on `--main-pack`.
 
-**4.7 and later** reject a `--main-pack` whose path does not resolve to
+**4.6 and later** reject a `--main-pack` whose path does not resolve to
 `FileAccess::ACCESS_RESOURCES`, unless the binary was compiled with the
-`disable_path_overrides=no` SCons option. The option was added in 4.7 and
+`disable_path_overrides=no` SCons option. The option was added in 4.6
+(present in `SConstruct` at 4.6.3-stable, absent at 4.5.1-stable) and
 defaults to disabling the overrides in export templates, so published artifacts
-from 4.7 on refuse an external pack with:
+from 4.6 on refuse an external pack with:
 
     --main-pack is attempting to load from outside of the executable, but this
     Godot binary was compiled without support for path overrides. Aborting.
