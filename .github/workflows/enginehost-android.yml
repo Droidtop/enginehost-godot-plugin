@@ -165,6 +165,18 @@ jobs:
       - uses: android-actions/setup-android@v3
         with:
           packages: ""
+      - name: The Java library and the native engine are the same Godot version
+        # The wrapper takes Godot's Java classes from Maven and its native
+        # library from this tree. Built from different versions they still
+        # compile and package, and then abort at launch in GodotLib.initialize
+        # when the native side looks up a Java method the other version does
+        # not have (plugin/4.4, 2026-09-18: GodotNetUtils.openURI). Compare
+        # the two here so that pair can never go green again.
+        run: |
+          tree=$(python3 -c "import version as v; print(f'{v.major}.{v.minor}.{v.patch}')")
+          aar=$(grep -o 'org.godotengine:godot:[0-9.]*' enginehost-android/app/build.gradle.kts | sed 's/.*://; s/\.$//')
+          echo "tree=$tree aar=$aar"
+          test "$tree" = "$aar"
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.13"
