@@ -25,6 +25,13 @@ import java.util.Locale;
  * format version, then the engine major/minor/patch as three more 32-bit
  * values. Verified against Goodbye Eternity: pack format 3, engine 4.5.1.
  *
+ * Pack format 2 and 3 follow the version with a flags word and a file base;
+ * format 3 also stores where the file directory begins, while format 2
+ * keeps the directory directly after a reserved stretch of header. Format 1
+ * (Godot 3) has neither flags nor file base. The layouts here are read
+ * straight from {@code PackedSourcePCK::try_open_pack} in
+ * core/io/file_access_pack.cpp.
+ *
  * <h2>No extraction</h2>
  *
  * Godot's own {@code PackedSourcePCK::try_open_pack} looks for that same
@@ -42,6 +49,8 @@ public final class GodotPackResolver {
     /** Trailer: 8-byte size + 4-byte magic. */
     private static final int TRAILER_BYTES = 12;
     private static final byte[] MAGIC = { 'G', 'D', 'P', 'C' };
+    /** Set in the header's flags word when the file directory is encrypted. */
+    private static final int PACK_DIR_ENCRYPTED = 1;
 
     /** What Godot should be pointed at, and which engine built it. */
     public static final class Pack {
@@ -51,11 +60,37 @@ public final class GodotPackResolver {
         public final String engineVersion;
         /** True when the pack is appended to a self-contained executable. */
         public final boolean embedded;
+        /**
+         * True when the header's flags word carries {@code PACK_DIR_ENCRYPTED}:
+         * the file directory, and usually the files themselves, are AES-256
+         * encrypted with the key the game was exported with.
+         */
+        public final boolean encrypted;
+        /**
+         * Where in {@code file} the file directory begins, counting from the
+         * file's start, or -1 when the header could not be read.
+         */
+        public final long directoryOffset;
 
-        Pack(File file, String engineVersion, boolean embedded) {
+        Pack(File file, Header header, boolean embedded) {
             this.file = file;
-            this.engineVersion = engineVersion;
             this.embedded = embedded;
+            this.engineVersion = header == null ? null : header.engineVersion;
+            this.encrypted = header != null && header.encrypted;
+            this.directoryOffset = header == null ? -1 : header.directoryOffset;
+        }
+    }
+
+    /** The parts of a pack header this wrapper needs. */
+    static final class Header {
+        final String engineVersion;
+        final boolean encrypted;
+        final long directoryOffset;
+
+        Header(String engineVersion, boolean encrypted, long directoryOffset) {
+            this.engineVersion = engineVersion;
+            this.encrypted = encrypted;
+            this.directoryOffset = directoryOffset;
         }
     }
 
@@ -102,32 +137,56 @@ public final class GodotPackResolver {
      * export carries it at the offset its trailer points to.
      */
     private static Pack describe(File file) throws IOException {
-        String standalone = readEngineVersion(file, 0);
+        Header standalone = readHeader(file, 0);
         if (standalone != null) {
             return new Pack(file, standalone, false);
         }
         long start = embeddedPackStart(file);
-        return new Pack(file, readEngineVersion(file, start), true);
+        return new Pack(file, readHeader(file, start), true);
     }
 
     /** The engine version an embedded or standalone pack declares, or null. */
     public static String readEngineVersion(File file, long packStart) {
+        Header header = readHeader(file, packStart);
+        return header == null ? null : header.engineVersion;
+    }
+
+    /**
+     * The pack header at {@code packStart}, or null when there is not one.
+     *
+     * Field order and the per-format directory placement are
+     * {@code PackedSourcePCK::try_open_pack}'s: magic, pack format, engine
+     * major/minor/patch, then for format 2 and 3 a flags word and a 64-bit
+     * file base. Format 3 stores the directory's offset relative to the pack;
+     * format 2 puts the directory after sixteen reserved 32-bit words; format
+     * 1 has no flags or file base and puts the directory after its own
+     * sixteen reserved words.
+     */
+    static Header readHeader(File file, long packStart) {
         try (RandomAccessFile handle = new RandomAccessFile(file, "r")) {
-            if (handle.length() < packStart + 20) {
+            if (packStart < 0 || handle.length() < packStart + 40) {
                 return null;
             }
             handle.seek(packStart);
-            byte[] header = new byte[20];
+            byte[] header = new byte[40];
             handle.readFully(header);
             if (!startsWithMagic(header)) {
                 return null;
             }
             ByteBuffer buffer = ByteBuffer.wrap(header).order(ByteOrder.LITTLE_ENDIAN);
-            buffer.position(8); // skip magic + pack format version
-            int major = buffer.getInt();
-            int minor = buffer.getInt();
-            int patch = buffer.getInt();
-            return major + "." + minor + "." + patch;
+            int format = buffer.getInt(4);
+            if (format < 1 || format > 3) {
+                return null;
+            }
+            String version = buffer.getInt(8) + "." + buffer.getInt(12) + "." + buffer.getInt(16);
+            if (format == 1) {
+                return new Header(version, false, packStart + 84);
+            }
+            boolean encrypted = (buffer.getInt(20) & PACK_DIR_ENCRYPTED) != 0;
+            long directory = format == 3
+                    ? packStart + buffer.getLong(32)
+                    : packStart + 96;
+            return new Header(version, encrypted, directory);
         } catch (IOException error) {
             return null;
         }
@@ -161,7 +220,7 @@ public final class GodotPackResolver {
                         + " declares an impossible size; the file is probably "
                         + "truncated or still copying");
             }
-            if (readEngineVersion(carrier, packStart) == null) {
+            if (readHeader(carrier, packStart) == null) {
                 throw new IOException("the pack inside " + quoted(carrier)
                         + " does not start where its trailer says; the file is "
                         + "probably damaged");
