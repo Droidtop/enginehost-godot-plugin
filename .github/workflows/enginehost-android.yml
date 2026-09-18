@@ -1,0 +1,408 @@
+name: Build Enginehost bundle
+
+on:
+  push:
+    branches: [plugin-core, "plugin/**"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: >-
+          Promote this build to a GitHub Release on the chosen channel. Stable is
+          for a bundle that has been used with real games on hardware; testing
+          for one that runs games but has not been lived with. Every push
+          already publishes to the unstable channel by itself.
+        type: boolean
+        default: false
+      channel:
+        description: "Release channel for a promoted build"
+        type: choice
+        options: [stable, testing]
+        default: stable
+      tag:
+        description: "Release tag (default: derived from the bundle id; testing adds -testing)"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+# One agent push supersedes the previous one instead of racing it. Before
+# this, every push queued another full build and nothing cancelled the run
+# it had just obsoleted, so a five-push fix session burned five builds and
+# could email five failures for one problem. Keyed on the ref, so branches
+# and PRs never cancel each other.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  spine-runtime:
+    # One bundle carries every ABI it supports and the host picks lib/<abi>
+    # from Build.SUPPORTED_ABIS, so the runtime is compiled once per ABI.
+    # Godot's own Android export templates ship both of these; `arch` is the
+    # SCons name and `abi` is the directory Godot writes the library into.
+    name: Godot runtime with spine_godot (${{ matrix.abi }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            abi: arm64-v8a
+          - arch: x86_64
+            abi: x86_64
+    steps:
+      - uses: actions/checkout@v4
+
+      # The spine-godot runtime, pinned to the 4.2 branch that matches the
+      # Spine 4.2.x editor exports found in shipping Godot games. It is
+      # compiled into libgodot_android.so as an engine module, the same way
+      # those games' own desktop binaries embed it.
+      - uses: actions/checkout@v4
+        with:
+          repository: EsotericSoftware/spine-runtimes
+          ref: e7dc1435fa4a0083ab431f1b28e083c14a1f5c68
+          path: spine-runtimes-src
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Restore Godot build cache
+        uses: ./.github/actions/godot-cache-restore
+        with:
+          cache-name: enginehost-spine-android-${{ matrix.arch }}
+        continue-on-error: true
+
+      - name: Setup Python and SCons
+        uses: ./.github/actions/godot-deps
+
+      - name: Download pre-built Android Swappy Frame Pacing Library
+        uses: dsaltares/fetch-gh-release-asset@1.1.2
+        with:
+          repo: godotengine/godot-swappy
+          version: tags/from-source-2025-01-31
+          file: godot-swappy.7z
+          target: swappy/godot-swappy.7z
+
+      - name: Extract pre-built Android Swappy Frame Pacing Library
+        run: 7za x -y swappy/godot-swappy.7z -o${{ github.workspace }}/thirdparty/swappy-frame-pacing
+
+      - name: Stage the spine_godot module
+        # The module's SCsub resolves spine-cpp via "#../spine_godot", i.e.
+        # it must live in a directory named spine_godot next to the Godot
+        # tree, exactly as spine-runtimes' own setup.sh lays it out.
+        run: |
+          cp -r spine-runtimes-src/spine-cpp/spine-cpp spine-runtimes-src/spine-godot/spine_godot/
+          cp -r spine-runtimes-src/spine-godot/spine_godot "${{ github.workspace }}/../spine_godot"
+
+      - name: Compilation
+        uses: ./.github/actions/godot-build
+        with:
+          scons-flags: >-
+            arch=${{ matrix.arch }}
+            swappy=yes
+            tests=no
+            disable_path_overrides=no
+            custom_modules=${{ github.workspace }}/../spine_godot
+          platform: android
+          target: template_release
+
+      - name: Save Godot build cache
+        uses: ./.github/actions/godot-cache-save
+        with:
+          cache-name: enginehost-spine-android-${{ matrix.arch }}
+        continue-on-error: true
+
+      - name: Verify the runtime actually contains spine
+        run: |
+          LIB=platform/android/java/lib/libs/release/${{ matrix.abi }}/libgodot_android.so
+          test -f "$LIB"
+          strings -a "$LIB" | grep -q SpineSkeletonDataResource
+          strings -a "$LIB" | grep -q SpineSprite
+
+      - name: Stage artifact
+        run: |
+          mkdir -p spine-runtime-out/${{ matrix.abi }}
+          cp platform/android/java/lib/libs/release/${{ matrix.abi }}/libgodot_android.so spine-runtime-out/${{ matrix.abi }}/
+          cp platform/android/java/lib/libs/release/${{ matrix.abi }}/libc++_shared.so spine-runtime-out/${{ matrix.abi }}/
+          cp spine-runtimes-src/LICENSE spine-runtime-out/LICENSE-spine-runtimes.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: spine-godot-runtime-${{ matrix.abi }}
+          path: spine-runtime-out/*
+
+  bundle:
+    runs-on: ubuntu-latest
+    needs: spine-runtime
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Droidtop/enginehost
+          ref: codex/engine-bundles
+          path: enginehost-tooling
+      # Both ABIs' artifacts merge into one spine-runtime tree, each under its
+      # own lib/<abi> directory.
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: spine-godot-runtime-*
+          merge-multiple: true
+          path: spine-runtime
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      # 2026-09-16: setup-android's default package list still asks for the
+      # obsolete "tools" SDK package, which Google has withdrawn from the
+      # repository, so sdkmanager exits 1 and the job dies before Gradle runs.
+      # The runner image already ships platform-tools and the command-line
+      # tools; an empty list makes the action only put them on PATH.
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: ""
+      - name: The Java library and the native engine are the same Godot version
+        # The wrapper takes Godot's Java classes from Maven and its native
+        # library from this tree. Built from different versions they still
+        # compile and package, and then abort at launch in GodotLib.initialize
+        # when the native side looks up a Java method the other version does
+        # not have (plugin/4.4, 2026-09-18: GodotNetUtils.openURI). Compare
+        # the two here so that pair can never go green again.
+        run: |
+          tree=$(python3 -c "import version as v; print(f'{v.major}.{v.minor}.{v.patch}')")
+          aar=$(grep -o 'org.godotengine:godot:[0-9.]*' enginehost-android/app/build.gradle.kts | sed 's/.*://; s/\.$//')
+          echo "tree=$tree aar=$aar"
+          test "$tree" = "$aar"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.13"
+      - name: Put the spine-enabled runtime where the APK picks it up
+        run: |
+          for abi in arm64-v8a x86_64; do
+            mkdir -p "enginehost-android/app/src/main/jniLibs/$abi"
+            cp "spine-runtime/$abi/libgodot_android.so" "enginehost-android/app/src/main/jniLibs/$abi/"
+            cp "spine-runtime/$abi/libc++_shared.so" "enginehost-android/app/src/main/jniLibs/$abi/"
+          done
+      - name: Build embedded Godot runtime APK
+        run: gradle -p enginehost-android :app:assembleDebug --no-daemon --stacktrace
+      - name: Verify the APK packaged the spine-enabled runtime
+        run: |
+          python3 - <<'PY'
+          import hashlib, pathlib, sys, zipfile
+          apk = zipfile.ZipFile('enginehost-android/app/build/outputs/apk/debug/app-debug.apk')
+          # Every ABI, so a bundle cannot ship one spine-enabled runtime and
+          # one stock one and fail only on the other kind of device.
+          for abi in ('arm64-v8a', 'x86_64'):
+              packed = hashlib.sha256(apk.read(f'lib/{abi}/libgodot_android.so')).hexdigest()
+              built = hashlib.sha256(pathlib.Path(f'spine-runtime/{abi}/libgodot_android.so').read_bytes()).hexdigest()
+              if packed != built:
+                  sys.exit(f'APK packaged the stock Godot runtime for {abi}, not the spine-enabled build')
+              print(f'APK carries the spine-enabled runtime for {abi}:', packed)
+          PY
+      - name: Build signed Enginehost bundle
+        env:
+          ENGINEHOST_SIGNING_KEY_PEM: ${{ secrets.ENGINEHOST_SIGNING_KEY_PEM }}
+        run: |
+          APK=enginehost-android/app/build/outputs/apk/debug/app-debug.apk
+          test -f "$APK"
+          test -n "$ENGINEHOST_SIGNING_KEY_PEM"
+          mkdir -p build/payload/runtime build/payload/lib build/output
+          cp "$APK" build/payload/runtime/godot.apk
+          python3 - <<'PY'
+          import pathlib, zipfile
+          apk = zipfile.ZipFile('enginehost-android/app/build/outputs/apk/debug/app-debug.apk')
+          root = pathlib.Path('build/payload')
+          for info in apk.infolist():
+              if info.filename.startswith('lib/') and info.filename.endswith('.so'):
+                  target = root / info.filename
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  target.write_bytes(apk.read(info))
+          PY
+          # Both ABIs are the rule, not a preference: a bundle that lost one
+          # would install and then fail to load on half the devices.
+          test -f build/payload/lib/arm64-v8a/libgodot_android.so
+          test -f build/payload/lib/x86_64/libgodot_android.so
+          cp LICENSE.txt COPYRIGHT.txt build/payload/
+          cp spine-runtime/LICENSE-spine-runtimes.txt build/payload/
+          printf '%s' "$ENGINEHOST_SIGNING_KEY_PEM" > build/signing-key.pem
+          # The bundle identity is the metadata's, so a version branch
+          # cannot emit a file claiming to be a different release.
+          BUNDLE_ID=$(python3 -c "import json;print(json.load(open('enginehost/bundle-metadata.json'))['bundleId'])")
+          echo "BUNDLE_ID=$BUNDLE_ID" >> "$GITHUB_ENV"
+          python3 enginehost-tooling/scripts/build-engine-bundle.py \
+            --metadata enginehost/bundle-metadata.json --payload build/payload \
+            --private-key build/signing-key.pem \
+            --repository-key-document enginehost-public-key.json \
+            --output "build/output/${BUNDLE_ID}.enginehost.tar.xz" \
+            --release-envelope build/output/enginehost-release.json \
+            --public-key-document build/output/enginehost-public-key.json
+          cmp enginehost-public-key.json build/output/enginehost-public-key.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.BUNDLE_ID }}
+          path: build/output/*
+
+  publish:
+    # Promotion is deliberate: a manual dispatch names the channel. Stable
+    # means used with real games on hardware; testing means it runs games
+    # but has not been lived with. Enginehost offers each person the channel
+    # they chose in Settings and every steadier one.
+    #
+    # Depends on bundle, not spine-runtime: this job used to race the bundle
+    # build (both only waited on spine-runtime), so it always ran before the
+    # signed bundle existed and "published" nothing. See the guard below.
+    needs: bundle
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+      - name: Publish the signed bundle on the chosen channel
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHANNEL: ${{ inputs.channel }}
+          REQUESTED_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          # This job needs: bundle. A plugin/* line's bundle job always
+          # produces a signed bundle, so a missing one there means the
+          # upload or the download is broken -- fail loudly instead of the
+          # silent success that hid this exact break (run 51). plugin-core
+          # itself is the wrapper trunk: pushed directly it carries no engine
+          # version to bundle, by design (see the bundle job's own
+          # startsWith(github.ref, 'refs/heads/plugin/') guard), so that case
+          # alone stays a no-op.
+          mkdir -p release
+          bundle="$(find release -name '*.enginehost.tar.xz' -print -quit)"
+          if [ -z "$bundle" ]; then
+            if [[ "$GITHUB_REF" == refs/heads/plugin/* ]]; then
+              echo "::error::No signed bundle artifact found to publish; the bundle job should have produced one on $GITHUB_REF." >&2
+              exit 1
+            fi
+            echo "$GITHUB_REF carries no engine version to bundle (not a plugin/* line); nothing to publish."
+            exit 0
+          fi
+          id="$(basename "$bundle" .enginehost.tar.xz)"
+          envelope="$(find release -name 'enginehost-release.json' -print -quit)"
+          keydoc="$(find release -name 'enginehost-public-key.json' -print -quit)"
+          test -f "$envelope"
+          # The envelope names its channel; the app filters on it. The signed
+          # manifest inside is untouched.
+          python3 - "$envelope" "$CHANNEL" <<'PY'
+          import json, sys
+          path, channel = sys.argv[1], sys.argv[2]
+          data = json.load(open(path))
+          data["channel"] = channel
+          json.dump(data, open(path, "w"), indent=2)
+          PY
+          tag="$REQUESTED_TAG"
+          if [ -z "$tag" ]; then
+            tag="$(printf '%s' "$id" | sed 's/^dev\.enginehost\.//; s/\./-/g')"
+          fi
+          case "$CHANNEL" in
+            stable) prerelease="" ;;
+            testing) tag="$tag-testing"; prerelease="--prerelease" ;;
+            unstable) tag="$tag-unstable"; prerelease="--prerelease" ;;
+            *) echo "unknown channel $CHANNEL" >&2; exit 1 ;;
+          esac
+          notes="Signed Enginehost bundle \`$id\` on the **$CHANNEL** channel, built from \`${{ github.ref_name }}\` at \`${{ github.sha }}\` (build ${{ github.run_number }}). Install it through Enginehost rather than unpacking it by hand: the bundle is verified file by file at install time against the key pinned for this repository."
+          if [ "$CHANNEL" = unstable ]; then
+            # Rolling: the newest green build of the line is the whole release.
+            gh release delete "$tag" --repo "${{ github.repository }}" --yes --cleanup-tag 2>/dev/null || true
+            gh release create "$tag" "$bundle" "$envelope" ${keydoc:+"$keydoc"} \
+              --repo "${{ github.repository }}" --title "$id (unstable)" $prerelease --notes "$notes"
+          elif gh release view "$tag" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release upload "$tag" "$bundle" "$envelope" ${keydoc:+"$keydoc"} \
+              --repo "${{ github.repository }}" --clobber
+            gh release edit "$tag" --repo "${{ github.repository }}" --notes "$notes"
+          else
+            gh release create "$tag" "$bundle" "$envelope" ${keydoc:+"$keydoc"} \
+              --repo "${{ github.repository }}" --title "$id ($CHANNEL)" $prerelease --notes "$notes"
+          fi
+
+  unstable:
+    # Every green push that produced a signed bundle is published as-is on
+    # the unstable channel, replacing the previous one, so a person who opted
+    # into unstable in Enginehost sees each build the moment CI is done with
+    # it. Branches whose build makes no bundle publish nothing.
+    #
+    # Depends on bundle, not spine-runtime: see the comment on the publish job.
+    needs: bundle
+    if: ${{ github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+      - name: Publish the signed bundle on the unstable channel
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHANNEL: unstable
+          REQUESTED_TAG: 
+        run: |
+          set -euo pipefail
+          # This job needs: bundle. A plugin/* line's bundle job always
+          # produces a signed bundle, so a missing one there means the
+          # upload or the download is broken -- fail loudly instead of the
+          # silent success that hid this exact break (run 51). plugin-core
+          # itself is the wrapper trunk: pushed directly it carries no engine
+          # version to bundle, by design (see the bundle job's own
+          # startsWith(github.ref, 'refs/heads/plugin/') guard), so that case
+          # alone stays a no-op.
+          mkdir -p release
+          bundle="$(find release -name '*.enginehost.tar.xz' -print -quit)"
+          if [ -z "$bundle" ]; then
+            if [[ "$GITHUB_REF" == refs/heads/plugin/* ]]; then
+              echo "::error::No signed bundle artifact found to publish; the bundle job should have produced one on $GITHUB_REF." >&2
+              exit 1
+            fi
+            echo "$GITHUB_REF carries no engine version to bundle (not a plugin/* line); nothing to publish."
+            exit 0
+          fi
+          id="$(basename "$bundle" .enginehost.tar.xz)"
+          envelope="$(find release -name 'enginehost-release.json' -print -quit)"
+          keydoc="$(find release -name 'enginehost-public-key.json' -print -quit)"
+          test -f "$envelope"
+          # The envelope names its channel; the app filters on it. The signed
+          # manifest inside is untouched.
+          python3 - "$envelope" "$CHANNEL" <<'PY'
+          import json, sys
+          path, channel = sys.argv[1], sys.argv[2]
+          data = json.load(open(path))
+          data["channel"] = channel
+          json.dump(data, open(path, "w"), indent=2)
+          PY
+          tag="$REQUESTED_TAG"
+          if [ -z "$tag" ]; then
+            tag="$(printf '%s' "$id" | sed 's/^dev\.enginehost\.//; s/\./-/g')"
+          fi
+          case "$CHANNEL" in
+            stable) prerelease="" ;;
+            testing) tag="$tag-testing"; prerelease="--prerelease" ;;
+            unstable) tag="$tag-unstable"; prerelease="--prerelease" ;;
+            *) echo "unknown channel $CHANNEL" >&2; exit 1 ;;
+          esac
+          notes="Signed Enginehost bundle \`$id\` on the **$CHANNEL** channel, built from \`${{ github.ref_name }}\` at \`${{ github.sha }}\` (build ${{ github.run_number }}). Install it through Enginehost rather than unpacking it by hand: the bundle is verified file by file at install time against the key pinned for this repository."
+          if [ "$CHANNEL" = unstable ]; then
+            # Rolling: the newest green build of the line is the whole release.
+            gh release delete "$tag" --repo "${{ github.repository }}" --yes --cleanup-tag 2>/dev/null || true
+            gh release create "$tag" "$bundle" "$envelope" ${keydoc:+"$keydoc"} \
+              --repo "${{ github.repository }}" --title "$id (unstable)" $prerelease --notes "$notes"
+          elif gh release view "$tag" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release upload "$tag" "$bundle" "$envelope" ${keydoc:+"$keydoc"} \
+              --repo "${{ github.repository }}" --clobber
+            gh release edit "$tag" --repo "${{ github.repository }}" --notes "$notes"
+          else
+            gh release create "$tag" "$bundle" "$envelope" ${keydoc:+"$keydoc"} \
+              --repo "${{ github.repository }}" --title "$id ($CHANNEL)" $prerelease --notes "$notes"
+          fi
