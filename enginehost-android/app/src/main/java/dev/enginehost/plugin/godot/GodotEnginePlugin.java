@@ -7,7 +7,6 @@ import dev.enginehost.api.EnginePlugin;
 import dev.enginehost.api.EnginePluginSession;
 import java.io.File;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.List;
 
 /** In-process Godot runtime hosted by Enginehost's FragmentActivity. */
@@ -28,6 +27,7 @@ public final class GodotEnginePlugin implements EnginePlugin {
         FragmentActivity activity = (FragmentActivity) session.host().context();
         requireGodotCanRead(activity, pack == null ? root : pack.file);
         requireRunnableHere(pack, session.runtimeVersion());
+        supplyPackKey(root, pack);
         // Where user:// goes: the save folder the person chose in Enginehost.
         // The engine reads this in OS_Android::get_user_data_dir and puts the
         // project's own user directory inside it, as it does on a desktop.
@@ -43,6 +43,55 @@ public final class GodotEnginePlugin implements EnginePlugin {
         activity.getSupportFragmentManager().beginTransaction()
             .add(session.display().getId(), fragment, "enginehost-godot-runtime")
             .commitNow();
+    }
+
+    /**
+     * Hands the engine the key an encrypted pack needs, recovered from the
+     * game's own executable.
+     *
+     * A pack exported with an encryption key has PACK_DIR_ENCRYPTED in its
+     * header, and try_open_pack decrypts its file directory with the 32 bytes
+     * of script_encryption_key that were compiled into the export template the
+     * game shipped with. Enginehost's engine carries its own constant, never
+     * that game's, so without this every encrypted pack fails in
+     * ProjectSettings::_setup with "Can't open encrypted pack directory". The
+     * key is exported for the engine to pick up in
+     * platform/android/java_godot_lib_jni.cpp before Main::setup, and is
+     * neither logged nor written anywhere.
+     */
+    private static void supplyPackKey(File gameRoot, GodotPackResolver.Pack pack)
+            throws IOException {
+        if (pack == null || !pack.encrypted) return;
+        GodotPackKey.EncryptedDirectory directory =
+                GodotPackKey.readEncryptedDirectory(pack.file, pack.directoryOffset);
+        File folder = pack.file.getParentFile() == null ? gameRoot : pack.file.getParentFile();
+        // The carrier of an embedded pack holds its own key; a loose pack's key
+        // is in the executable the export named to match it.
+        File preferred = pack.embedded ? pack.file : GodotPackKey.siblingOf(pack.file);
+        List<File> executables = GodotPackKey.executablesIn(folder, preferred);
+        StringBuilder tried = new StringBuilder();
+        for (File executable : executables) {
+            byte[] key = GodotPackKey.recover(executable, directory);
+            if (key != null) {
+                try {
+                    android.system.Os.setenv("ENGINEHOST_GODOT_PACK_KEY",
+                            GodotPackKey.hex(key), true);
+                } catch (android.system.ErrnoException refused) {
+                    throw new IOException("the key for this game's pack could not be "
+                            + "passed to the engine", refused);
+                }
+                return;
+            }
+            if (tried.length() > 0) tried.append(", ");
+            tried.append('"').append(executable.getName()).append('"');
+        }
+        throw new IOException("\"" + gameRoot.getName() + "\" ships an encrypted pack, and "
+                + "the key it was encrypted with could not be found. Godot keeps that key "
+                + "inside the game's own program, so this folder needs the .exe or .x86_64 "
+                + "the pack was exported beside. "
+                + (tried.length() == 0
+                        ? "There is no Windows or Linux program in this folder to read it from."
+                        : "Read without finding it: " + tried + "."));
     }
 
     /**
