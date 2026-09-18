@@ -32,24 +32,38 @@ public final class EngineHostGodotFragment extends GodotFragment {
     }
 
     /**
-     * A game that asks the engine to restart (OS.set_restart_on_exit, a
-     * language change that needs a clean engine) reaches GodotHost here, and
-     * GodotHost's default does nothing: the engine has already stopped
-     * drawing, so the person is left on a black screen for good (rig,
-     * 2026-09-18, Anomalous Coffee Machine 2's language dialog). Upstream's
-     * own app answers by killing its process and relaunching
-     * (GodotActivity.onGodotRestartRequested), because the engine cannot be
+     * A game that restarts itself (OS.set_restart_on_exit, then quit: a
+     * language change that needs a clean engine) does not arrive as a restart
+     * request. The native side leaves it to Main::cleanup
+     * (java_godot_lib_jni.cpp, "Whether restarting is handled by
+     * 'Main::cleanup()'"), which calls OS::create_instance with the game's
+     * restart arguments, and that lands here. GodotHost's default does
+     * nothing, and the engine is already gone: the last frame stays on screen
+     * for good (rig, 2026-09-18, Anomalous Coffee Machine 2's language
+     * dialog). Upstream's GodotActivity answers with a process rebirth whose
+     * command line is these arguments, because the engine cannot be
      * de-initialised in place. Enginehost owns the process, so it is asked to
-     * do the same. Called on the render thread; the host works on the UI
-     * thread.
+     * do the same. The return value is upstream's "fake process id": anything
+     * but -1, which create_instance reads as failure.
      */
+    @Override public int onNewGodotInstanceRequested(String[] args) {
+        restartGame(args == null ? new String[0] : args);
+        return 0;
+    }
+
+    /** The engine's own restart (a lost rendering context): same answer, no arguments. */
     @Override public void onGodotRestartRequested(Godot instance) {
+        restartGame(new String[0]);
+    }
+
+    /** Called on the render thread; the host works on the UI thread. */
+    private void restartGame(String[] arguments) {
         android.app.Activity activity = getActivity();
         if (activity == null) return;
         activity.runOnUiThread(() -> {
             Log.i(TAG, "The game asked to be restarted");
             try {
-                host.restart();
+                host.restart(arguments);
             } catch (IncompatibleClassChangeError olderHost) {
                 // An Enginehost from before restart() existed. This plugin
                 // compiles against its own copy of the interface and runs
@@ -62,6 +76,16 @@ public final class EngineHostGodotFragment extends GodotFragment {
                 host.finish();
             }
         });
+    }
+
+    /** What the run before this one passed to restart; none on an older Enginehost. */
+    private String[] restartArguments() {
+        try {
+            String[] arguments = host.restartArguments();
+            return arguments == null ? new String[0] : arguments;
+        } catch (IncompatibleClassChangeError olderHost) {
+            return new String[0];
+        }
     }
 
     @Override public List<String> getCommandLine() {
@@ -87,6 +111,9 @@ public final class EngineHostGodotFragment extends GodotFragment {
                     arguments.add(value);
                 }
             }
+            // Last, as upstream's rebirth makes them the new instance's
+            // command line: what the game itself asked to be restarted with.
+            for (String value : restartArguments()) arguments.add(value);
             return arguments;
         } catch (Exception error) {
             // Deliberately not IllegalArgumentException. GodotFragment
