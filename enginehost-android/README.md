@@ -36,6 +36,48 @@ that exception as "the APK expansion pack is missing" and replaces the game with
 its OBB downloader UI, so a launch error would vanish behind a progress bar for a
 download that cannot exist.
 
+## Encrypted packs
+
+A project exported with an encryption key ships a pack whose file directory,
+and usually whose files, are AES-256 encrypted. `try_open_pack` decrypts the
+directory with the 32 bytes of `script_encryption_key`
+(`core/io/file_access_pack.cpp`), and that array is not read from anywhere at
+run time: `core/core_builders.py` compiles it into the export template from the
+build's `SCRIPT_AES256_ENCRYPTION_KEY`. So the key lives only inside the
+binaries the game shipped with, and this bundle's own engine, built with the
+default constant, fails such a game in `ProjectSettings::_setup` with
+`Can't open encrypted pack directory`.
+
+`GodotPackKey` reads the key back out of the game's own program. Every 32-byte
+window of every initialized, non-executable section of the `.exe` or `.x86_64`
+is a candidate, and a candidate is accepted only when decrypting the game's
+real pack directory with it reproduces the MD5 the pack recorded -- the same
+check `FileAccessEncrypted::open_and_parse` makes. A wrong key therefore cannot
+be accepted. Writable sections are searched first, because the array is a
+mutable global and `.data` is small; a one-AES-block filter on the first
+plaintext block rejects nearly every candidate before any full decrypt. On the
+two builds of Anomalous Coffee Machine 2 the key comes back in a fraction of a
+second, and the Windows and Linux builds yield the same key.
+
+The plugin then exports it as `ENGINEHOST_GODOT_PACK_KEY`, 64 hexadecimal
+characters, which `platform/android/java_godot_lib_jni.cpp` applies to
+`script_encryption_key` before `Main::setup`, removing it from the environment
+as it does. With nothing exported the compiled constant stands and the engine
+behaves exactly as upstream. The key is never logged, shown or written to disk.
+
+A folder with an encrypted pack and no program to read the key from fails
+before the engine starts, naming the game, saying the pack is encrypted, and
+listing the files that were read without finding it.
+
+`tools/GodotPackKeyCheck.java` runs the shipped routine on a workstation,
+against fixtures it builds itself and, given a game's executable and pack, a
+real game:
+
+    javac -d /tmp/godot-keycheck         app/src/main/java/dev/enginehost/plugin/godot/GodotPackKey.java         app/src/main/java/dev/enginehost/plugin/godot/GodotPackResolver.java         tools/GodotPackKeyCheck.java
+    java -cp /tmp/godot-keycheck dev.enginehost.plugin.godot.GodotPackKeyCheck         [<game executable> <pack>]
+
+It reports a recovered key as a digest of itself, never as the key.
+
 ## All Files Access
 
 Godot's Android file layer (`StorageScope`) refuses any path outside the app's
@@ -77,12 +119,17 @@ published artifact loads an external pack exactly as shipped and no source
 build is involved here. The branches cut from 4.7 and later, `plugin-core`
 among them, are the ones that carry the restriction.
 
-## Known gap: save location
+## Save location
 
 Godot has no command line option for the user data directory, on any released
-line. `user://` therefore resolves to the runtime app's own Android data
-directory, not to the save directory Enginehost hands the session. Redirecting
-it needs a mechanism other than the command line.
+line, and upstream `OS_Android::get_user_data_dir` ignores the project's own
+user directory name and returns the app's files directory: one app, one game.
+Under Enginehost one app runs every Godot game, so every game's `savegame.save`
+landed in the same private folder. The plugin exports the save folder the person
+chose as `ENGINEHOST_SAVE_PATH`, and this fork's `OS_Android::get_user_data_dir`
+puts the project's own directory inside it under the desktop's own rule
+(`OS_Unix::get_user_data_dir`): `godot/app_userdata/<project name>`, or the
+project's custom user directory. Outside Enginehost nothing changes.
 
 Godot is copyright its contributors and licensed under MIT. The Maven artifact
 retains upstream notices; see <https://godotengine.org/license/> and the
