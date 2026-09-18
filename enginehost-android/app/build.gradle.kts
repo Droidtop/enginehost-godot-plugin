@@ -4,7 +4,7 @@ android {
     namespace = "dev.enginehost.plugin.godot"
     compileSdk = 36
     defaultConfig {
-        applicationId = "dev.enginehost.plugin.godot.v451.slot1"
+        applicationId = "dev.enginehost.plugin.godot.v404.slot1"
         minSdk = 26
         targetSdk = 34
         versionCode = 1
@@ -26,7 +26,7 @@ android {
     }
     packaging {
         jniLibs {
-            // CI drops a source-built libgodot_android.so (Godot 4.5.1 with
+            // CI drops a source-built libgodot_android.so (Godot 4.0.4 with
             // the spine_godot module compiled in) into src/main/jniLibs.
             // The org.godotengine AAR carries the stock library at the same
             // path; the app source set is merged first, so pickFirst keeps
@@ -44,7 +44,7 @@ android {
 }
 
 dependencies {
-    implementation("org.godotengine:godot:4.5.1.stable")
+    implementation("org.godotengine:godot:4.0.4.stable")
     implementation("androidx.fragment:fragment:1.8.6")
     compileOnly(project(":api"))
 }
