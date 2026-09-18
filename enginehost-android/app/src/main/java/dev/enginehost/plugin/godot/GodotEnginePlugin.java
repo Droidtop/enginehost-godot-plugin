@@ -7,8 +7,6 @@ import dev.enginehost.api.EnginePlugin;
 import dev.enginehost.api.EnginePluginSession;
 import java.io.File;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
 
 /** In-process Godot runtime hosted by Enginehost's FragmentActivity. */
 public final class GodotEnginePlugin implements EnginePlugin {
