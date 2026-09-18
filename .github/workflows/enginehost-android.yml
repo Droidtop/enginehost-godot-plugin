@@ -103,7 +103,7 @@ jobs:
       - name: Compilation
         uses: ./.github/actions/godot-build
         with:
-          scons-flags: >-
+          sconsflags: >-
             arch=${{ matrix.arch }}
             swappy=yes
             tests=no
