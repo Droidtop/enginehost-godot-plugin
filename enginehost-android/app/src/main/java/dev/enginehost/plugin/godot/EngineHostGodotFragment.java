@@ -33,17 +33,12 @@ public final class EngineHostGodotFragment extends Fragment implements GodotHost
     private static final String TAG = "EnginehostGodot";
     private static final String ENGINE = "godot-engine";
 
-    private final File gameRoot;
     private final File pack;
     private final String optionsJson;
     private final EngineHost host;
 
-    /**
-     * @param pack what {@code --main-pack} should name, or null to open
-     *             {@code gameRoot} as a loose project
-     */
-    EngineHostGodotFragment(File gameRoot, File pack, String optionsJson, EngineHost host) {
-        this.gameRoot = gameRoot;
+    /** @param pack what {@code --main-pack} names: a .pck, or the export that carries one */
+    EngineHostGodotFragment(File pack, String optionsJson, EngineHost host) {
         this.pack = pack;
         this.optionsJson = optionsJson;
         this.host = host;
@@ -129,15 +124,9 @@ public final class EngineHostGodotFragment extends Fragment implements GodotHost
     @Override public List<String> getCommandLine() {
         try {
             List<String> arguments = new ArrayList<>();
-            if (pack != null) {
-                Log.i(TAG, "Loading pack " + pack.getAbsolutePath());
-                arguments.add("--main-pack");
-                arguments.add(pack.getAbsolutePath());
-            } else {
-                Log.i(TAG, "Loading project at " + gameRoot.getAbsolutePath());
-                arguments.add("--path");
-                arguments.add(gameRoot.getAbsolutePath());
-            }
+            Log.i(TAG, "Loading pack " + pack.getAbsolutePath());
+            arguments.add("--main-pack");
+            arguments.add(pack.getAbsolutePath());
             JSONArray extra =
                     new JSONObject(optionsJson == null ? "{}" : optionsJson).optJSONArray("commandLine");
             if (extra != null) {
