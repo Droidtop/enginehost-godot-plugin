@@ -264,7 +264,25 @@ Error OS_Android::open_dynamic_library(const String &p_path, void *&p_library_ha
 	return OK;
 }
 
+// Under Enginehost this engine runs games that were exported for a desktop,
+// unmodified. A game that asks where it is running and hears "Android" takes
+// its own Android branch: Goodbye Eternity turns on its mobile mode and a
+// bigger UI, and the two buttons of its first screen collide, which they do
+// not do in the Windows original (rig and host, 2026-09-18). So the engine
+// presents the platform the game was exported for. The wrapper reads that
+// from the game's own executable and exports its OS::get_name() ("Windows",
+// "Linux", "macOS"); the person can choose Android instead, per game, and
+// with nothing exported this build answers exactly as upstream does.
+static String _enginehost_presented_platform() {
+	const char *name = getenv("ENGINEHOST_GODOT_PLATFORM");
+	return (name && name[0] != 0) ? String::utf8(name) : String();
+}
+
 String OS_Android::get_name() const {
+	String presented = _enginehost_presented_platform();
+	if (!presented.is_empty()) {
+		return presented;
+	}
 	return "Android";
 }
 
@@ -875,6 +893,29 @@ Error OS_Android::verify_apk(const String &p_apk_path) {
 #endif
 
 bool OS_Android::_check_internal_feature_support(const String &p_feature) {
+	// The tags a desktop build of the presented platform answers to
+	// (OS_Windows, OS_LinuxBSD and OS_MacOS::_check_internal_feature_support,
+	// and their identifiers), in place of this platform's own "mobile". The
+	// platform's identifier tag itself follows get_name() in OS::has_feature.
+	String presented = _enginehost_presented_platform();
+	if (!presented.is_empty()) {
+		if (p_feature == "pc") {
+			return true;
+		}
+		if (p_feature == "mobile") {
+			return false;
+		}
+		if (presented == "Windows" && p_feature == "windows") {
+			return true;
+		}
+		if (presented == "Linux" && (p_feature == "linux" || p_feature == "linuxbsd")) {
+			return true;
+		}
+		if (presented == "macOS" && p_feature == "macos") {
+			return true;
+		}
+	}
+
 	if (p_feature == "macos" || p_feature == "web_ios" || p_feature == "web_macos" || p_feature == "windows") {
 		return false;
 	}
