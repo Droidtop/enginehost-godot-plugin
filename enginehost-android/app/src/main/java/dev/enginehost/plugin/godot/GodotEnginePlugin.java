@@ -28,6 +28,7 @@ public final class GodotEnginePlugin implements EnginePlugin {
         requireGodotCanRead(activity, pack == null ? root : pack.file);
         requireRunnableHere(pack, session.runtimeVersion());
         supplyPackKey(root, pack);
+        presentExportPlatform(root, pack, session.optionsJson());
         // Where user:// goes: the save folder the person chose in Enginehost.
         // The engine reads this in OS_Android::get_user_data_dir and puts the
         // project's own user directory inside it, as it does on a desktop.
@@ -43,6 +44,33 @@ public final class GodotEnginePlugin implements EnginePlugin {
         activity.getSupportFragmentManager().beginTransaction()
             .add(session.display().getId(), fragment, "enginehost-godot-runtime")
             .commitNow();
+    }
+
+    /**
+     * Tells the engine which platform to present to the game: the one the
+     * game was exported for, unless the person chose Android for this game
+     * ({@code "platform": "android"} in the folder's options). Exported for
+     * the engine to pick up in OS_Android::get_name, before the engine
+     * library loads.
+     */
+    private static void presentExportPlatform(File gameRoot, GodotPackResolver.Pack pack,
+            String optionsJson) throws Exception {
+        if (pack == null) return;
+        String choice = new org.json.JSONObject(optionsJson == null ? "{}" : optionsJson)
+                .optString("platform", "export");
+        if ("android".equals(choice)) {
+            android.util.Log.i("EnginehostGodot", "Presenting Android to the game, as chosen for it");
+            return;
+        }
+        String platform = GodotExportPlatform.of(gameRoot, pack);
+        if (platform == null) {
+            android.util.Log.i("EnginehostGodot", "No executable beside the pack to tell its "
+                    + "platform by; the game sees Android");
+            return;
+        }
+        android.util.Log.i("EnginehostGodot", "Presenting " + platform + " to the game, the "
+                + "platform it was exported for");
+        android.system.Os.setenv("ENGINEHOST_GODOT_PLATFORM", platform, true);
     }
 
     /**
