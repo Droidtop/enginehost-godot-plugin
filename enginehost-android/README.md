@@ -119,6 +119,20 @@ published artifact loads an external pack exactly as shipped and no source
 build is involved here. The branches cut from 4.7 and later, `plugin-core`
 among them, are the ones that carry the restriction.
 
+## The platform a game sees
+
+A game exported for Windows or Linux runs here unmodified, and it behaves as
+it does on that desktop only if the engine tells it that is where it is.
+Asked `OS.get_name()` and the `pc`/`mobile`/platform feature tags, this engine
+answers for the platform the game was exported for, which the wrapper reads
+from the game's own executable (PE, ELF or Mach-O) and exports as
+`ENGINEHOST_GODOT_PLATFORM`. Feature-tagged project settings follow, so a
+game takes its desktop values (`rendering_method`, not
+`rendering_method.mobile`); `options.commandLine` can still force a renderer
+per game. A pack with no executable beside it sees Android, as does any game
+whose folder sets `"options": {"platform": "android"}`, for a game whose own
+touch layout is wanted.
+
 ## Save location
 
 Godot has no command line option for the user data directory, on any released
