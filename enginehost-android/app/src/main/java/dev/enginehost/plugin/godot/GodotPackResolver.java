@@ -102,9 +102,7 @@ public final class GodotPackResolver {
      * @param gameRoot the game folder as Enginehost resolved it
      * @param execFile the folder's configured entry, relative to
      *                 {@code gameRoot}; null or blank when unset
-     * @return the pack to load, or null when the folder is a loose project
-     *         ({@code project.godot}) that Godot should open with
-     *         {@code --path}
+     * @return the pack to load, never null
      * @throws IOException when nothing here is loadable, with a message
      *         that says what was looked for
      */
@@ -117,12 +115,21 @@ public final class GodotPackResolver {
             return describe(standalone);
         }
         if (new File(gameRoot, "project.godot").isFile()) {
-            return null;
+            // On Android res:// is FileAccessAndroid, the APK's own assets
+            // (OS_Android::initialize_core), so a project that is only files
+            // in a folder cannot be opened: --path reaches ProjectSettings and
+            // ends in "Couldn't load project data" (rig, 2026-09-18).
+            throw new IOException(
+                    "this folder is an unexported Godot project (project.godot and its "
+                            + "files), and Godot on Android can only open an exported "
+                            + "game: a .pck, or a Windows or Linux export with the pack "
+                            + "inside it. Export the project from the Godot editor and "
+                            + "point Enginehost at that.");
         }
         File carrier = firstEmbeddedCarrier(gameRoot);
         if (carrier == null) {
             throw new IOException(
-                    "this folder holds no Godot game: expected a project.godot, a "
+                    "this folder holds no Godot game: expected a "
                             + "single .pck or .zip, or a Godot export with the pack "
                             + "inside it. If the game is in a subfolder, point the "
                             + "folder's execFile at the export itself.");
