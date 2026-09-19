@@ -22,6 +22,24 @@
       "runtimeComponents": {}
     }
   ],
+  "declaredOptions": [
+    {
+      "key": "platform",
+      "label": "Platform the game sees",
+      "type": "choice",
+      "description": "What the engine tells the game it is running on. A game exported for a desktop behaves as it does there when it sees that desktop; some games switch to a touch layout of their own when they see Android.",
+      "choices": [
+        {
+          "value": "export",
+          "label": "The platform it was exported for (default)"
+        },
+        {
+          "value": "android",
+          "label": "Android"
+        }
+      ]
+    }
+  ],
   "source": {
     "upstream": "https://github.com/godotengine/godot",
     "revision": "4.1.4-stable"
