@@ -25,7 +25,7 @@ public final class GodotEnginePlugin implements EnginePlugin {
         // than inside the engine where the report is the engine's to make.
         GodotPackResolver.Pack pack = GodotPackResolver.resolve(root, session.execFile());
         FragmentActivity activity = (FragmentActivity) session.host().context();
-        requireGodotCanRead(activity, pack == null ? root : pack.file);
+        requireGodotCanRead(activity, pack.file);
         requireRunnableHere(pack, session.runtimeVersion());
         supplyPackKey(root, pack);
         presentExportPlatform(root, pack, session.optionsJson());
@@ -40,7 +40,7 @@ public final class GodotEnginePlugin implements EnginePlugin {
         if (session.display().getId() == android.view.View.NO_ID)
             session.display().setId(android.view.View.generateViewId());
         fragment = new EngineHostGodotFragment(
-            root, pack == null ? null : pack.file, session.optionsJson(), session.host());
+            pack.file, session.optionsJson(), session.host());
         activity.getSupportFragmentManager().beginTransaction()
             .add(session.display().getId(), fragment, "enginehost-godot-runtime")
             .commitNow();
@@ -55,7 +55,6 @@ public final class GodotEnginePlugin implements EnginePlugin {
      */
     private static void presentExportPlatform(File gameRoot, GodotPackResolver.Pack pack,
             String optionsJson) throws Exception {
-        if (pack == null) return;
         String choice = new org.json.JSONObject(optionsJson == null ? "{}" : optionsJson)
                 .optString("platform", "export");
         if ("android".equals(choice)) {
@@ -89,7 +88,7 @@ public final class GodotEnginePlugin implements EnginePlugin {
      */
     private static void supplyPackKey(File gameRoot, GodotPackResolver.Pack pack)
             throws IOException {
-        if (pack == null || !pack.encrypted) return;
+        if (!pack.encrypted) return;
         GodotPackKey.EncryptedDirectory directory =
                 GodotPackKey.readEncryptedDirectory(pack.file, pack.directoryOffset);
         File folder = pack.file.getParentFile() == null ? gameRoot : pack.file.getParentFile();
@@ -130,7 +129,7 @@ public final class GodotEnginePlugin implements EnginePlugin {
      */
     private static void requireRunnableHere(GodotPackResolver.Pack pack, String runtimeVersion)
             throws IOException {
-        if (pack == null || pack.engineVersion == null || runtimeVersion == null) return;
+        if (pack.engineVersion == null || runtimeVersion == null) return;
         int[] built = series(pack.engineVersion);
         int[] here = series(runtimeVersion);
         if (built == null || here == null) return;
