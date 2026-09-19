@@ -4,7 +4,7 @@ This Enginehost bundle takes Godot's Java classes from the official Android
 library `org.godotengine:godot:4.6.3.stable`, pairs them with a native engine
 built from this tree, and attaches the fragment directly to the host runtime
 process. It accepts a live game folder and runs it through Godot's
-documented `--path` / `--main-pack` command line.
+documented `--main-pack` command line.
 Additional engine settings may be passed as a string array in
 `options.commandLine`; they are appended after the plugin-selected project or
 pack argument. A normal game needs none of them.
@@ -19,7 +19,8 @@ this order:
 
 1. the folder's `execFile`, when one is set;
 2. the folder's single `.pck` or `.zip`;
-3. a `project.godot`, which is opened with `--path`;
+3. a `project.godot` is refused with a sentence: on Android `res://` is the
+   APK's own assets, so an unexported project cannot be opened;
 4. otherwise, the first file in the folder carrying an appended pack.
 
 A self-contained export -- Godot's own default, a single executable with the
