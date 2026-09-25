@@ -22,4 +22,7 @@ public interface EngineHost {
      * that is not a restart. Same compatibility rule as {@link #restart}.
      */
     String[] restartArguments();
+
+    /** Ends the runtime because the engine could not start; the launch screen shows the message. */
+    void fail(String message);
 }

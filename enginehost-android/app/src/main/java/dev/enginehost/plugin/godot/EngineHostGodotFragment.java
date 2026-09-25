@@ -60,6 +60,18 @@ public final class EngineHostGodotFragment extends Fragment implements GodotHost
         getChildFragmentManager().beginTransaction()
                 .add(view.getId(), new Godot(), ENGINE)
                 .commitNow();
+        // The engine starts here, after the plugin's onCreate returned, so a
+        // failed start cannot be thrown to Enginehost; it is handed to it
+        // instead, in place of the engine's own alert over a black screen.
+        if (!engineStarted()) {
+            String message = GodotEngineLog.failureMessage(null);
+            try {
+                host.fail(message);
+            } catch (IncompatibleClassChangeError olderHost) {
+                Log.w(TAG, message);
+                host.finish();
+            }
+        }
     }
 
     /**
@@ -86,6 +98,12 @@ public final class EngineHostGodotFragment extends Fragment implements GodotHost
     /** The engine's own restart (a lost rendering context): same answer, no arguments. */
     @Override public void onGodotRestartRequested(Godot instance) {
         restartGame(new String[0]);
+    }
+
+    /** Whether the engine got through its setup: its render view exists only after that. */
+    boolean engineStarted() {
+        androidx.fragment.app.Fragment engine = getChildFragmentManager().findFragmentByTag(ENGINE);
+        return engine instanceof Godot && ((Godot) engine).getRenderView() != null;
     }
 
     /** Called on the render thread; the host works on the UI thread. */
