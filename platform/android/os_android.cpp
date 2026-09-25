@@ -49,6 +49,7 @@
 #include "scene/main/scene_tree.h"
 #include "servers/rendering_server.h"
 
+#include <android/api-level.h>
 #include <dlfcn.h>
 #include <sys/system_properties.h>
 
@@ -98,7 +99,21 @@ void OS_Android::initialize_core() {
 	}
 #endif
 	FileAccess::make_default<FileAccessUnix>(FileAccess::ACCESS_USERDATA);
-	FileAccess::make_default<FileAccessFilesystemJAndroid>(FileAccess::ACCESS_FILESYSTEM);
+	// Enginehost: no scoped storage below API 30, so filesystem paths are opened
+	// natively there. The Java handler (FileAccessHandler, shipped in the stock
+	// org.godotengine AAR, not built from this tree) refuses any path its
+	// StorageScope calls UNKNOWN, and before API 30 that is every path outside
+	// /storage/emulated/0 and the app's own directories: a game on a second
+	// card, a USB drive or BlueStacks' /mnt/windows/BstSharedFolder failed with
+	// "Cannot open resource pack" before the file was ever opened (Enginehost
+	// rig, Android 9). Natively the kernel's own permissions decide, as they
+	// do for the Java handler's own reads of the paths it does accept.
+	const bool unscoped_storage = android_get_device_api_level() < __ANDROID_API_R__;
+	if (unscoped_storage) {
+		FileAccess::make_default<FileAccessUnix>(FileAccess::ACCESS_FILESYSTEM);
+	} else {
+		FileAccess::make_default<FileAccessFilesystemJAndroid>(FileAccess::ACCESS_FILESYSTEM);
+	}
 
 #ifdef TOOLS_ENABLED
 	DirAccess::make_default<DirAccessUnix>(DirAccess::ACCESS_RESOURCES);
@@ -110,7 +125,11 @@ void OS_Android::initialize_core() {
 	}
 #endif
 	DirAccess::make_default<DirAccessUnix>(DirAccess::ACCESS_USERDATA);
-	DirAccess::make_default<DirAccessJAndroid>(DirAccess::ACCESS_FILESYSTEM);
+	if (unscoped_storage) {
+		DirAccess::make_default<DirAccessUnix>(DirAccess::ACCESS_FILESYSTEM);
+	} else {
+		DirAccess::make_default<DirAccessJAndroid>(DirAccess::ACCESS_FILESYSTEM);
+	}
 
 	NetSocketAndroid::make_default();
 }
