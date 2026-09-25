@@ -40,9 +40,22 @@ public final class GodotEnginePlugin implements EnginePlugin {
             session.display().setId(android.view.View.generateViewId());
         fragment = new EngineHostGodotFragment(
             root, pack == null ? null : pack.file, session.optionsJson(), session.host());
-        activity.getSupportFragmentManager().beginTransaction()
-            .add(session.display().getId(), fragment, "enginehost-godot-runtime")
-            .commitNow();
+        // A failed engine start is this plugin's startup error, reported
+        // through Enginehost like any other: the launch screen then says why
+        // and offers Report a problem. The engine's own answer to it is an
+        // alert over a black screen that then kills the process, and the
+        // person never learned what happened in Enginehost's terms (rig,
+        // 2026-09-25). Whether the engine started is read from it directly
+        // (its render view exists only after a successful setup), not from a
+        // callback, which some lines deliver later on the render thread.
+        try {
+            activity.getSupportFragmentManager().beginTransaction()
+                .add(session.display().getId(), fragment, "enginehost-godot-runtime")
+                .commitNow();
+        } catch (IllegalStateException refused) {
+            throw new IOException(GodotEngineLog.failureMessage(refused.getMessage()), refused);
+        }
+        if (!fragment.engineStarted()) throw new IOException(GodotEngineLog.failureMessage(null));
     }
 
     /**

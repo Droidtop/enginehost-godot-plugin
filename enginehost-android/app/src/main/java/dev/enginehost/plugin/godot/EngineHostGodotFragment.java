@@ -56,6 +56,12 @@ public final class EngineHostGodotFragment extends GodotFragment {
         restartGame(new String[0]);
     }
 
+    /** Whether the engine got through its setup: its render view exists only after that. */
+    boolean engineStarted() {
+        Godot engine = getGodot();
+        return engine != null && engine.getRenderView() != null;
+    }
+
     /** Called on the render thread; the host works on the UI thread. */
     private void restartGame(String[] arguments) {
         android.app.Activity activity = getActivity();
