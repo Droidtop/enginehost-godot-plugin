@@ -239,9 +239,9 @@ jobs:
     needs: bundle
     permissions:
       contents: read
-    uses: Droidtop/enginehost/.github/workflows/sign-engine-bundle.yml@74162ce067087af604ee5a54edcd09eb9f872922
+    uses: Droidtop/enginehost/.github/workflows/sign-engine-bundle.yml@4b9e41cb231b293d08852890aef54b619d4d57ec
     with:
-      tooling-sha: 74162ce067087af604ee5a54edcd09eb9f872922
+      tooling-sha: 4b9e41cb231b293d08852890aef54b619d4d57ec
       unsigned-artifact: ${{ needs.bundle.outputs.bundle-id }}-unsigned
       bundle: ${{ needs.bundle.outputs.bundle-id }}.enginehost.tar.xz
       artifact-name: ${{ needs.bundle.outputs.bundle-id }}
