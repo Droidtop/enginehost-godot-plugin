@@ -108,19 +108,6 @@ internal enum class StorageScope {
 				return APP
 			}
 
-			// Before R there is no scoped storage: whether a path can be read is
-			// decided by the process's permissions and the file's own mode, for
-			// every path, as the shared-storage branch below already says. Only
-			// shared storage was let through, so a game on any other mount (a
-			// second card, a USB drive, an emulator's host folder such as
-			// BlueStacks' /mnt/windows/BstSharedFolder) was UNKNOWN, every open
-			// failed before the file system was asked, and the engine reported
-			// "Cannot open resource pack" for a pack it could read (Enginehost
-			// rig, Android 9, Goodbye Eternity from the share).
-			if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-				return APP
-			}
-
 			val canonicalPathFile = pathFile.canonicalPath
 
 			if (internalAppDir != null && canonicalPathFile.startsWith(internalAppDir)) {
@@ -141,6 +128,12 @@ internal enum class StorageScope {
 			}
 
 			if (sharedDir != null && canonicalPathFile.startsWith(sharedDir)) {
+				if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+					// Before R, apps had access to shared storage so long as they have the right
+					// permissions (and flag on Q).
+					return APP
+				}
+
 				// Post R, access is limited based on the target destination
 				// 'Downloads' and 'Documents' are still accessible
 				if ((downloadsSharedDir != null && canonicalPathFile.startsWith(downloadsSharedDir))
