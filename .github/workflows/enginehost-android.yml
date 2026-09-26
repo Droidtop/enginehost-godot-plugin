@@ -318,14 +318,16 @@ jobs:
             # Rolling: the newest green build of the line is the whole release.
             gh release delete "$tag" --repo "${{ github.repository }}" --yes --cleanup-tag 2>/dev/null || true
             gh release create "$tag" "$bundle" "$envelope" ${keydoc:+"$keydoc"} \
-              --repo "${{ github.repository }}" --title "$id (unstable)" $prerelease --notes "$notes"
+              --repo "${{ github.repository }}" --title "$id (unstable)" $prerelease --notes "$notes" \
+              --target "${{ github.sha }}"
           elif gh release view "$tag" --repo "${{ github.repository }}" >/dev/null 2>&1; then
             gh release upload "$tag" "$bundle" "$envelope" ${keydoc:+"$keydoc"} \
               --repo "${{ github.repository }}" --clobber
             gh release edit "$tag" --repo "${{ github.repository }}" --notes "$notes"
           else
             gh release create "$tag" "$bundle" "$envelope" ${keydoc:+"$keydoc"} \
-              --repo "${{ github.repository }}" --title "$id ($CHANNEL)" $prerelease --notes "$notes"
+              --repo "${{ github.repository }}" --title "$id ($CHANNEL)" $prerelease --notes "$notes" \
+              --target "${{ github.sha }}"
           fi
 
   unstable:
@@ -397,12 +399,14 @@ jobs:
             # Rolling: the newest green build of the line is the whole release.
             gh release delete "$tag" --repo "${{ github.repository }}" --yes --cleanup-tag 2>/dev/null || true
             gh release create "$tag" "$bundle" "$envelope" ${keydoc:+"$keydoc"} \
-              --repo "${{ github.repository }}" --title "$id (unstable)" $prerelease --notes "$notes"
+              --repo "${{ github.repository }}" --title "$id (unstable)" $prerelease --notes "$notes" \
+              --target "${{ github.sha }}"
           elif gh release view "$tag" --repo "${{ github.repository }}" >/dev/null 2>&1; then
             gh release upload "$tag" "$bundle" "$envelope" ${keydoc:+"$keydoc"} \
               --repo "${{ github.repository }}" --clobber
             gh release edit "$tag" --repo "${{ github.repository }}" --notes "$notes"
           else
             gh release create "$tag" "$bundle" "$envelope" ${keydoc:+"$keydoc"} \
-              --repo "${{ github.repository }}" --title "$id ($CHANNEL)" $prerelease --notes "$notes"
+              --repo "${{ github.repository }}" --title "$id ($CHANNEL)" $prerelease --notes "$notes" \
+              --target "${{ github.sha }}"
           fi
