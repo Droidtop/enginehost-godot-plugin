@@ -6,7 +6,11 @@ import androidx.fragment.app.FragmentActivity;
 import dev.enginehost.api.EnginePlugin;
 import dev.enginehost.api.EnginePluginSession;
 import java.io.File;
+import java.io.FileDescriptor;
+import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.lang.reflect.Field;
 import java.util.List;
 
 /** In-process Godot runtime hosted by Enginehost's FragmentActivity. */
@@ -39,24 +43,64 @@ public final class GodotEnginePlugin implements EnginePlugin {
         loadNativeRuntime(session.bundleDirectory());
         if (session.display().getId() == android.view.View.NO_ID)
             session.display().setId(android.view.View.generateViewId());
+
+        // Open the pack file through the host's file system to get a file descriptor.
+        // This works on SMB shares where Godot's native open() on a path would fail.
+        String packPathForGodot;
+        FileInputStream packStream = null;
+        try {
+            String relativePackPath = root.toPath().relativize(pack.file.toPath()).toString();
+            InputStream inputStream = session.host().fileSystem().openRead(relativePackPath);
+            if (inputStream instanceof FileInputStream) {
+                packStream = (FileInputStream) inputStream;
+                FileDescriptor fd = packStream.getFD();
+                int fdInt = getFileDescriptorInt(fd);
+                if (fdInt >= 0) {
+                    packPathForGodot = "/proc/self/fd/" + fdInt;
+                    android.util.Log.i("EnginehostGodot", "Using file descriptor path for pack: " + packPathForGodot);
+                } else {
+                    packPathForGodot = pack.file.getAbsolutePath();
+                    android.util.Log.w("EnginehostGodot", "Could not get file descriptor int, falling back to path: " + packPathForGodot);
+                }
+            } else {
+                packPathForGodot = pack.file.getAbsolutePath();
+                android.util.Log.w("EnginehostGodot", "Host file system did not return FileInputStream, falling back to path: " + packPathForGodot);
+                inputStream.close();
+            }
+        } catch (IOException | ReflectiveOperationException e) {
+            android.util.Log.w("EnginehostGodot", "Failed to open pack via host file system, falling back to path: " + e.getMessage());
+            packPathForGodot = pack.file.getAbsolutePath();
+            if (packStream != null) {
+                try { packStream.close(); } catch (IOException ignored) {}
+                packStream = null;
+            }
+        }
+
         fragment = new EngineHostGodotFragment(
-            pack.file, session.optionsJson(), session.host());
-        // A failed engine start is this plugin's startup error, reported
-        // through Enginehost like any other: the launch screen then says why
-        // and offers Report a problem. The engine's own answer to it is an
-        // alert over a black screen that then kills the process, and the
-        // person never learned what happened in Enginehost's terms (rig,
-        // 2026-09-25). Whether the engine started is read from it directly
-        // (its render view exists only after a successful setup), not from a
-        // callback, which some lines deliver later on the render thread.
+            packPathForGodot, packStream, session.optionsJson(), session.host());
         try {
             activity.getSupportFragmentManager().beginTransaction()
                 .add(session.display().getId(), fragment, "enginehost-godot-runtime")
                 .commitNow();
         } catch (IllegalStateException refused) {
+            if (packStream != null) {
+                try { packStream.close(); } catch (IOException ignored) {}
+            }
             throw new IOException(GodotEngineLog.failureMessage(refused.getMessage()), refused);
         }
-        if (!fragment.engineStarted()) throw new IOException(GodotEngineLog.failureMessage(null));
+        if (!fragment.engineStarted()) {
+            if (packStream != null) {
+                try { packStream.close(); } catch (IOException ignored) {}
+            }
+            throw new IOException(GodotEngineLog.failureMessage(null));
+        }
+    }
+
+    /** Extracts the raw file descriptor integer from a FileDescriptor via reflection. */
+    private static int getFileDescriptorInt(FileDescriptor fd) throws ReflectiveOperationException {
+        Field field = FileDescriptor.class.getDeclaredField("fd");
+        field.setAccessible(true);
+        return field.getInt(fd);
     }
 
     /**
