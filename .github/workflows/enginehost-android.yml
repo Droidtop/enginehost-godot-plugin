@@ -251,12 +251,16 @@ jobs:
     needs: bundle
     permissions:
       contents: read
-    uses: Droidtop/enginehost/.github/workflows/sign-engine-bundle.yml@4b9e41cb231b293d08852890aef54b619d4d57ec
+    uses: Droidtop/enginehost/.github/workflows/sign-engine-bundle.yml@749433c7e8ae2e5571a97cdbfdbf2d3ad2d4d2fc
     with:
-      tooling-sha: 4b9e41cb231b293d08852890aef54b619d4d57ec
+      tooling-sha: 749433c7e8ae2e5571a97cdbfdbf2d3ad2d4d2fc
       unsigned-artifact: ${{ needs.bundle.outputs.bundle-id }}-unsigned
       bundle: ${{ needs.bundle.outputs.bundle-id }}.enginehost.tar.xz
       artifact-name: ${{ needs.bundle.outputs.bundle-id }}
+      # Empty on an ordinary push (no workflow_dispatch inputs exist then);
+      # the stable-channel pre-1.0 guard only checks when this is "stable"
+      # (docs/security/2026-09-27-pre-1.0-stable-guard.md).
+      channel: ${{ inputs.channel }}
     secrets:
       ENGINEHOST_SIGNING_KEY_PEM: ${{ secrets.ENGINEHOST_SIGNING_KEY_PEM }}
 
@@ -298,6 +302,7 @@ jobs:
           # version to bundle, by design (see the bundle job's own
           # startsWith(github.ref, 'refs/heads/plugin/') guard), so that case
           # alone stays a no-op.
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::SHA must be a full commit hash, got '$SHA'; refusing to create a release with an unpinned target" >&2; exit 1; }
           mkdir -p release
           bundle="$(find release -name '*.enginehost.tar.xz' -print -quit)"
           if [ -z "$bundle" ]; then
@@ -405,6 +410,7 @@ jobs:
           # version to bundle, by design (see the bundle job's own
           # startsWith(github.ref, 'refs/heads/plugin/') guard), so that case
           # alone stays a no-op.
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::SHA must be a full commit hash, got '$SHA'; refusing to create a release with an unpinned target" >&2; exit 1; }
           mkdir -p release
           bundle="$(find release -name '*.enginehost.tar.xz' -print -quit)"
           if [ -z "$bundle" ]; then
