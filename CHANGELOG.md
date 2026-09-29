@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.9.1] - 2026-09-29
+
+### Changed
+
+- Declared version raised to 0.9.1 (testing channel) so the next publish is
+  0.9.1-1, which orders above every legacy `X.Y.<run>` build already published
+  (Enginehost reads those as `X.Y.0-<run>`). No republish; the change takes
+  effect on the next build.
+
 ## [4.0.4] - 2023-08-02
 
 See the [release announcement](https://godotengine.org/article/maintenance-release-godot-4-0-4) for details.
