@@ -2539,3 +2539,13 @@ branches, and linked at the [end of this file](#Past-releases).
 - [3.2](https://github.com/godotengine/godot/blob/3.2-stable/CHANGELOG.md)
 - [3.1](https://github.com/godotengine/godot/blob/3.1-stable/CHANGELOG.md)
 - [3.0](https://github.com/godotengine/godot/blob/f2e19a26f556c42b7202072296dc072aaac2007c/CHANGELOG.md)
+
+## [0.9.1] - 2026-09-29
+
+### Changed
+
+- Declared version raised to 0.9.1 (testing channel) so the next publish is
+  0.9.1-1, which orders above every legacy `X.Y.<run>` build already published
+  (Enginehost reads those as `X.Y.0-<run>`). No republish; the change takes
+  effect on the next build.
+
