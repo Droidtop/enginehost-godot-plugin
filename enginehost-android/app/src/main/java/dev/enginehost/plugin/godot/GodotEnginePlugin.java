@@ -29,6 +29,9 @@ public final class GodotEnginePlugin implements EnginePlugin {
         requireRunnableHere(pack, session.runtimeVersion());
         supplyPackKey(root, pack);
         presentExportPlatform(root, pack, session.optionsJson());
+        // Before the engine exists, so a bundle missing a component it
+        // declares fails as a startup error instead of a game without it.
+        java.util.Set<String> components = GodotComponents.configs(session);
         // Where user:// goes: the save folder the person chose in Enginehost.
         // The engine reads this in OS_Android::get_user_data_dir and puts the
         // project's own user directory inside it, as it does on a desktop.
@@ -40,7 +43,7 @@ public final class GodotEnginePlugin implements EnginePlugin {
         if (session.display().getId() == android.view.View.NO_ID)
             session.display().setId(android.view.View.generateViewId());
         fragment = new EngineHostGodotFragment(
-            pack.file, session.optionsJson(), session.host());
+            pack.file, session.optionsJson(), session.host(), components);
         // A failed engine start is this plugin's startup error, reported
         // through Enginehost like any other: the launch screen then says why
         // and offers Report a problem. The engine's own answer to it is an
