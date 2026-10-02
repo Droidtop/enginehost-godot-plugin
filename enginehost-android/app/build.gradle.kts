@@ -26,13 +26,14 @@ android {
     }
     packaging {
         jniLibs {
-            // CI drops a source-built libgodot_android.so (Godot 4.5.1 with
-            // the spine_godot module compiled in) into src/main/jniLibs.
-            // The org.godotengine AAR carries the stock library at the same
-            // path; the app source set is merged first, so pickFirst keeps
-            // the spine-enabled build.
+            // CI drops this line's source-built libgodot_android.so (Godot
+            // 4.5.1 with Enginehost's engine changes, no extra modules;
+            // runtime components ship beside it as GDExtensions) into
+            // src/main/jniLibs. The org.godotengine AAR carries the stock
+            // library at the same path; the app source set is merged first,
+            // so pickFirst keeps the line's build.
             // Every ABI the bundle ships, or the stock library from the AAR
-            // wins for the ones left out and that ABI silently loses spine.
+            // wins for the ones left out and that ABI silently loses them.
             pickFirsts += listOf(
                 "lib/arm64-v8a/libgodot_android.so",
                 "lib/arm64-v8a/libc++_shared.so",

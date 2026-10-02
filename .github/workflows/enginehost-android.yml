@@ -37,12 +37,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  spine-runtime:
+  godot-runtime:
+    # The engine this line runs, built from this branch's Godot source (it
+    # carries Enginehost's engine changes: the presented platform, pack keys,
+    # save path) with NO extra module compiled in. Runtime components such as
+    # spine-godot are separate payload members loaded as GDExtensions
+    # (spine-godot-extension below; Enginehost docs/engine-bundle-format.md,
+    # "Runtime components (subplugins)"), so this one engine build serves
+    # every component combination the bundle declares.
     # One bundle carries every ABI it supports and the host picks lib/<abi>
     # from Build.SUPPORTED_ABIS, so the runtime is compiled once per ABI.
-    # Godot's own Android export templates ship both of these; `arch` is the
-    # SCons name and `abi` is the directory Godot writes the library into.
-    name: Godot runtime with spine_godot (${{ matrix.abi }})
+    # `arch` is the SCons name and `abi` is the directory Godot writes into.
+    name: Godot runtime (${{ matrix.abi }})
     runs-on: ubuntu-latest
     timeout-minutes: 180
     strategy:
@@ -58,17 +64,6 @@ jobs:
         with:
           persist-credentials: false
 
-      # The spine-godot runtime, pinned to the 4.2 branch that matches the
-      # Spine 4.2.x editor exports found in shipping Godot games. It is
-      # compiled into libgodot_android.so as an engine module, the same way
-      # those games' own desktop binaries embed it.
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          persist-credentials: false
-          repository: EsotericSoftware/spine-runtimes
-          ref: e7dc1435fa4a0083ab431f1b28e083c14a1f5c68
-          path: spine-runtimes-src
-
       - name: Set up Java 17
         uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
@@ -78,7 +73,7 @@ jobs:
       - name: Restore Godot build cache
         uses: ./.github/actions/godot-cache-restore
         with:
-          cache-name: enginehost-spine-android-${{ matrix.arch }}
+          cache-name: enginehost-android-${{ matrix.arch }}
         continue-on-error: true
 
       - name: Setup Python and SCons
@@ -95,14 +90,6 @@ jobs:
       - name: Extract pre-built Android Swappy Frame Pacing Library
         run: 7za x -y swappy/godot-swappy.7z -o${{ github.workspace }}/thirdparty/swappy-frame-pacing
 
-      - name: Stage the spine_godot module
-        # The module's SCsub resolves spine-cpp via "#../spine_godot", i.e.
-        # it must live in a directory named spine_godot next to the Godot
-        # tree, exactly as spine-runtimes' own setup.sh lays it out.
-        run: |
-          cp -r spine-runtimes-src/spine-cpp/spine-cpp spine-runtimes-src/spine-godot/spine_godot/
-          cp -r spine-runtimes-src/spine-godot/spine_godot "${{ github.workspace }}/../spine_godot"
-
       - name: Compilation
         uses: ./.github/actions/godot-build
         with:
@@ -110,54 +97,142 @@ jobs:
             arch=${{ matrix.arch }}
             swappy=yes
             tests=no
-            custom_modules=${{ github.workspace }}/../spine_godot
           platform: android
           target: template_release
 
       - name: Save Godot build cache
         uses: ./.github/actions/godot-cache-save
         with:
-          cache-name: enginehost-spine-android-${{ matrix.arch }}
+          cache-name: enginehost-android-${{ matrix.arch }}
         continue-on-error: true
 
-      - name: Verify the runtime actually contains spine
+      - name: Verify the runtime carries no compiled-in spine
+        # Spine comes only from the component; two copies of its classes
+        # (module and extension) would register the same names twice.
         run: |
           LIB=platform/android/java/lib/libs/release/${{ matrix.abi }}/libgodot_android.so
           test -f "$LIB"
-          strings -a "$LIB" | grep -q SpineSkeletonDataResource
-          strings -a "$LIB" | grep -q SpineSprite
+          if strings -a "$LIB" | grep -q SpineSkeletonDataResource; then
+            echo "::error::libgodot_android.so for ${{ matrix.abi }} has spine compiled in" >&2
+            exit 1
+          fi
 
       - name: Stage artifact
         run: |
-          mkdir -p spine-runtime-out/${{ matrix.abi }}
-          cp platform/android/java/lib/libs/release/${{ matrix.abi }}/libgodot_android.so spine-runtime-out/${{ matrix.abi }}/
-          cp platform/android/java/lib/libs/release/${{ matrix.abi }}/libc++_shared.so spine-runtime-out/${{ matrix.abi }}/
-          cp spine-runtimes-src/LICENSE spine-runtime-out/LICENSE-spine-runtimes.txt
+          mkdir -p godot-runtime-out/${{ matrix.abi }}
+          cp platform/android/java/lib/libs/release/${{ matrix.abi }}/libgodot_android.so godot-runtime-out/${{ matrix.abi }}/
+          cp platform/android/java/lib/libs/release/${{ matrix.abi }}/libc++_shared.so godot-runtime-out/${{ matrix.abi }}/
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: spine-godot-runtime-${{ matrix.abi }}
-          path: spine-runtime-out/*
+          name: godot-runtime-${{ matrix.abi }}
+          path: godot-runtime-out/*
+
+  spine-godot-extension:
+    # The spine-godot runtime component: Esoteric's official GDExtension
+    # flavor of spine-godot (spine-godot/build/build-extension.sh, godot-cpp),
+    # pinned to the 4.2 branch that matches the Spine 4.2.x editor exports
+    # found in shipping Godot games, built against godot-cpp for this engine
+    # line. A few megabytes per ABI instead of a second engine build.
+    name: spine-godot extension (${{ matrix.abi }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            abi: arm64-v8a
+          - arch: x86_64
+            abi: x86_64
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          repository: EsotericSoftware/spine-runtimes
+          ref: e7dc1435fa4a0083ab431f1b28e083c14a1f5c68
+          path: spine-runtimes-src
+
+      # godot-cpp at the engine line's release tag (godot-4.5-stable), so
+      # the extension is built against exactly the API this engine exposes.
+      # setup-extension.sh would clone the moving 4.5 branch instead; the
+      # rest of what it does (spine-cpp into spine_godot) is the step below.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          repository: godotengine/godot-cpp
+          ref: e83fd0904c13356ed1d4c3d09f8bb9132bdc6b77
+          path: spine-runtimes-src/spine-godot/godot-cpp
+
+      - name: Setup SCons
+        # The version Godot's own CI uses (.github/actions/godot-deps).
+        run: |
+          pipx install scons==4.9.0
+          scons --version
+
+      - name: Install the NDK godot-cpp builds with
+        # godot-cpp names the exact NDK it expects (tools/android.py,
+        # ndk_version) and looks for it under $ANDROID_HOME/ndk/.
+        run: |
+          set -euo pipefail
+          NDK=$(python3 - <<'PY'
+          import re
+          text = open('spine-runtimes-src/spine-godot/godot-cpp/tools/android.py').read()
+          print(re.search(r'"ndk_version",\s*"[^"]*",\s*"([0-9.]+)"', text).group(1))
+          PY
+          )
+          echo "godot-cpp wants NDK $NDK"
+          if [ ! -d "$ANDROID_HOME/ndk/$NDK" ]; then
+            yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$NDK" >/dev/null
+          fi
+          test -d "$ANDROID_HOME/ndk/$NDK"
+          echo "NDK_ROOT=$ANDROID_HOME/ndk/$NDK" >> "$GITHUB_ENV"
+
+      - name: Build the extension
+        run: |
+          set -euo pipefail
+          cp -r spine-runtimes-src/spine-cpp/spine-cpp spine-runtimes-src/spine-godot/spine_godot/
+          spine-runtimes-src/spine-godot/build/build-extension.sh android ${{ matrix.arch }}
+
+      - name: Verify and stage the component
+        run: |
+          set -euo pipefail
+          LIB=spine-runtimes-src/spine-godot/bin/android/libspine_godot.android.template_release.${{ matrix.arch }}.so
+          test -f "$LIB"
+          # The entry point the component's .gdextension names.
+          "$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm" -D --defined-only "$LIB"             | grep -qw spine_godot_library_init
+          mkdir -p spine-godot-out/lib/${{ matrix.abi }}
+          cp "$LIB" spine-godot-out/lib/${{ matrix.abi }}/libspine_godot.so
+          cp spine-runtimes-src/LICENSE spine-godot-out/LICENSE-spine-runtimes.txt
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: spine-godot-extension-${{ matrix.abi }}
+          path: spine-godot-out/*
 
   bundle:
     # Builds and packs the payload. No signing key and no write token here:
     # Gradle, its plugins and the third-party actions below run in this job
     # (Enginehost docs/security/2026-09-24-ci-supply-chain.md).
     runs-on: ubuntu-latest
-    needs: spine-runtime
+    needs: [godot-runtime, spine-godot-extension]
     outputs:
       bundle-id: ${{ steps.pack.outputs.bundle-id }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      # Both ABIs' artifacts merge into one spine-runtime tree, each under its
-      # own lib/<abi> directory.
+      # Both ABIs' artifacts merge into one tree each, under lib/<abi> or <abi>.
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          pattern: spine-godot-runtime-*
+          pattern: godot-runtime-*
           merge-multiple: true
-          path: spine-runtime
+          path: godot-runtime
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: spine-godot-extension-*
+          merge-multiple: true
+          path: spine-godot
       - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
@@ -173,28 +248,28 @@ jobs:
       - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
         with:
           gradle-version: "8.13"
-      - name: Put the spine-enabled runtime where the APK picks it up
+      - name: Put the line's runtime where the APK picks it up
         run: |
           for abi in arm64-v8a x86_64; do
             mkdir -p "enginehost-android/app/src/main/jniLibs/$abi"
-            cp "spine-runtime/$abi/libgodot_android.so" "enginehost-android/app/src/main/jniLibs/$abi/"
-            cp "spine-runtime/$abi/libc++_shared.so" "enginehost-android/app/src/main/jniLibs/$abi/"
+            cp "godot-runtime/$abi/libgodot_android.so" "enginehost-android/app/src/main/jniLibs/$abi/"
+            cp "godot-runtime/$abi/libc++_shared.so" "enginehost-android/app/src/main/jniLibs/$abi/"
           done
       - name: Build embedded Godot runtime APK
         run: gradle -p enginehost-android :app:assembleDebug --no-daemon --stacktrace
-      - name: Verify the APK packaged the spine-enabled runtime
+      - name: Verify the APK packaged the line's runtime
         run: |
           python3 - <<'PY'
           import hashlib, pathlib, sys, zipfile
           apk = zipfile.ZipFile('enginehost-android/app/build/outputs/apk/debug/app-debug.apk')
-          # Every ABI, so a bundle cannot ship one spine-enabled runtime and
-          # one stock one and fail only on the other kind of device.
+          # Every ABI, so a bundle cannot ship this line's runtime for one and
+          # the AAR's stock library (no Enginehost engine changes) for the other.
           for abi in ('arm64-v8a', 'x86_64'):
               packed = hashlib.sha256(apk.read(f'lib/{abi}/libgodot_android.so')).hexdigest()
-              built = hashlib.sha256(pathlib.Path(f'spine-runtime/{abi}/libgodot_android.so').read_bytes()).hexdigest()
+              built = hashlib.sha256(pathlib.Path(f'godot-runtime/{abi}/libgodot_android.so').read_bytes()).hexdigest()
               if packed != built:
-                  sys.exit(f'APK packaged the stock Godot runtime for {abi}, not the spine-enabled build')
-              print(f'APK carries the spine-enabled runtime for {abi}:', packed)
+                  sys.exit(f'APK packaged the AAR runtime for {abi}, not this line\'s build')
+              print(f'APK carries the line runtime for {abi}:', packed)
           PY
       - name: Pack the unsigned bundle inputs
         id: pack
@@ -219,7 +294,10 @@ jobs:
           test -f build/unsigned/payload/lib/arm64-v8a/libgodot_android.so
           test -f build/unsigned/payload/lib/x86_64/libgodot_android.so
           cp LICENSE.txt COPYRIGHT.txt build/unsigned/payload/
-          cp spine-runtime/LICENSE-spine-runtimes.txt build/unsigned/payload/
+          # Every component the metadata declares, at
+          # components/<name>/<version>/: its libraries for both ABIs, its
+          # licence, and the .gdextension the wrapper hands the engine.
+          python3 enginehost/stage-components.py build/unsigned/payload
           # The bundle identity is the metadata's, so a version branch
           # cannot emit a file claiming to be a different release.
           BUNDLE_ID=$(python3 -c "import json;print(json.load(open('enginehost/bundle-metadata.json'))['bundleId'])")
@@ -258,8 +336,8 @@ jobs:
     # but has not been lived with. Enginehost offers each person the channel
     # they chose in Settings and every steadier one.
     #
-    # Depends on bundle, not spine-runtime: this job used to race the bundle
-    # build (both only waited on spine-runtime), so it always ran before the
+    # Depends on bundle, not a runtime build job: this job used to race the
+    # bundle build (both only waited on the runtime build), so it always ran before the
     # signed bundle existed and "published" nothing. See the guard below.
     needs: [bundle, sign]
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish }}
@@ -368,7 +446,7 @@ jobs:
     # into unstable in Enginehost sees each build the moment CI is done with
     # it. Branches whose build makes no bundle publish nothing.
     #
-    # Depends on bundle, not spine-runtime: see the comment on the publish job.
+    # Depends on bundle, not a runtime build job: see the comment on the publish job.
     needs: [bundle, sign]
     if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest

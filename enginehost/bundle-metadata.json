@@ -1,7 +1,7 @@
 {
-  "bundleId": "dev.enginehost.godot.v45.v1",
+  "bundleId": "dev.enginehost.godot.v45.v2",
   "engine": "godot",
-  "pluginVersion": "1.0.1",
+  "pluginVersion": "1.1.0",
   "apiVersion": 1,
   "entrypoint": "dev.enginehost.plugin.godot.GodotEnginePlugin",
   "origin": "https://github.com/droidtop/enginehost-godot-plugin",
@@ -13,7 +13,15 @@
   ],
   "capabilities": [
     {
-      "id": "godot-4.5-standard-v1",
+      "id": "godot-4.5-standard-v2",
+      "engineContext": "standard",
+      "runtimeVersion": "4.5.1",
+      "supportedSeries": [
+        "4.5"
+      ]
+    },
+    {
+      "id": "godot-4.5-spine-4.2-v2",
       "engineContext": "standard",
       "runtimeVersion": "4.5.1",
       "supportedSeries": [
@@ -50,6 +58,11 @@
         "upstream": "https://github.com/EsotericSoftware/spine-runtimes",
         "revision": "e7dc1435fa4a0083ab431f1b28e083c14a1f5c68",
         "branch": "4.2"
+      },
+      "godot-cpp": {
+        "upstream": "https://github.com/godotengine/godot-cpp",
+        "revision": "e83fd0904c13356ed1d4c3d09f8bb9132bdc6b77",
+        "tag": "godot-4.5-stable"
       }
     }
   },
