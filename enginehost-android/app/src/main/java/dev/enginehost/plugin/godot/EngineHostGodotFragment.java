@@ -4,8 +4,12 @@ import android.util.Log;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
+import org.godotengine.godot.Godot;
 import org.godotengine.godot.GodotFragment;
+import org.godotengine.godot.plugin.GodotPlugin;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -16,15 +20,27 @@ public final class EngineHostGodotFragment extends GodotFragment {
     private final File gameRoot;
     private final File pack;
     private final String optionsJson;
+    private final Set<String> componentConfigs;
 
     /**
      * @param pack what {@code --main-pack} should name, or null to open
      *             {@code gameRoot} as a loose project
+     * @param componentConfigs the runtime components' GDExtension configs
+     *             ({@link GodotComponents#configs})
      */
-    EngineHostGodotFragment(File gameRoot, File pack, String optionsJson) {
+    EngineHostGodotFragment(File gameRoot, File pack, String optionsJson,
+            Set<String> componentConfigs) {
         this.gameRoot = gameRoot;
         this.pack = pack;
         this.optionsJson = optionsJson;
+        this.componentConfigs = componentConfigs;
+    }
+
+    /** Registers the runtime components with the engine before it initialises. */
+    @Override public Set<GodotPlugin> getHostPlugins(Godot engine) {
+        Set<GodotPlugin> plugins = new LinkedHashSet<>(super.getHostPlugins(engine));
+        if (!componentConfigs.isEmpty()) plugins.add(new GodotComponents.Plugin(engine, componentConfigs));
+        return plugins;
     }
 
     @Override public List<String> getCommandLine() {

@@ -36,6 +36,24 @@ that exception as "the APK expansion pack is missing" and replaces the game with
 its OBB downloader UI, so a launch error would vanish behind a progress bar for a
 download that cannot exist.
 
+## Runtime components
+
+A game can need more than the stock engine: Spine animations, or any other
+GDExtension or engine module its desktop build carried. The engine stays
+stock; a component is signed bundle payload under
+`components/<name>/<version>/` (its libraries in `lib/arm64-v8a/` and
+`lib/x86_64/`, its licence, and `<name>.gdextension` naming the libraries
+relative to itself), and the bundle declares one capability per component
+combination it serves (`runtimeComponents`). Enginehost selects the capability
+against the game's `runtimeRequirements` and hands the plugin the selected
+capability's components (`EnginePluginSession.runtimeComponents()`).
+`GodotComponents` turns them into config paths and the fragment registers them
+as a host `GodotPlugin`, whose `getPluginGDExtensionLibrariesPaths()` Godot
+reads in `OS_Android::load_platform_gdextensions` during core registration,
+before any game script parses. The game's own files are never edited. How to
+add a component: Enginehost docs/engine-bundle-format.md, "Adding a runtime
+component".
+
 ## All Files Access
 
 Godot's Android file layer (`StorageScope`) refuses any path outside the app's

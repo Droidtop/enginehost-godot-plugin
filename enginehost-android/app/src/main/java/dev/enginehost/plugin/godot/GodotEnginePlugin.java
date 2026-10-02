@@ -33,12 +33,15 @@ public final class GodotEnginePlugin implements EnginePlugin {
         FragmentActivity activity = (FragmentActivity) session.host().context();
         requireGodotCanRead(activity, pack == null ? root : pack.file);
         requireRunnableHere(pack, session.runtimeVersion());
+        // Before the engine exists, so a bundle missing a component it
+        // declares fails as a startup error instead of a game without it.
+        java.util.Set<String> components = GodotComponents.configs(session);
         attachResourcesWhereGodotLooks(activity, session.bundleDirectory());
         loadNativeRuntime(session.bundleDirectory());
         if (session.display().getId() == android.view.View.NO_ID)
             session.display().setId(android.view.View.generateViewId());
         fragment = new EngineHostGodotFragment(
-            root, pack == null ? null : pack.file, session.optionsJson());
+            root, pack == null ? null : pack.file, session.optionsJson(), components);
         activity.getSupportFragmentManager().beginTransaction()
             .add(session.display().getId(), fragment, "enginehost-godot-runtime")
             .commitNow();
