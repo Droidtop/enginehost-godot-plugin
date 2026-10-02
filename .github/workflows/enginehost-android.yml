@@ -183,7 +183,11 @@ jobs:
           )
           echo "godot-cpp wants NDK $NDK"
           if [ ! -d "$ANDROID_HOME/ndk/$NDK" ]; then
-            yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$NDK" >/dev/null
+            SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          # `yes` gets SIGPIPE when sdkmanager exits, which pipefail turns into a failure: accept the
+          # licences on their own, then install without a pipe and print the log if it fails.
+          (yes || true) | "$SDKM" --licenses >/dev/null 2>&1 || true
+          "$SDKM" --install "ndk;$NDK" >ndk-install.log 2>&1 || { tail -40 ndk-install.log; exit 1; }
           fi
           test -d "$ANDROID_HOME/ndk/$NDK"
           echo "NDK_ROOT=$ANDROID_HOME/ndk/$NDK" >> "$GITHUB_ENV"
