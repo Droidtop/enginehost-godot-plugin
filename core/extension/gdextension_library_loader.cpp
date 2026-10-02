@@ -35,6 +35,27 @@
 #include "core/version.h"
 #include "gdextension.h"
 
+// Enginehost: a game may be shown the platform it was exported for
+// (OS_Android::get_name and _check_internal_feature_support answer
+// "Windows", "pc", ... when ENGINEHOST_GODOT_PLATFORM is set), but a
+// library is loaded on the platform the engine actually runs on. A
+// [libraries] entry is therefore chosen with Android's own platform tags:
+// otherwise a game's android.* entry would never match, and on an x86_64
+// device its windows.*.x86_64 DLL would. Every other tag (arch, release,
+// template, ...) is the engine's own answer. Without a presented platform
+// this is exactly upstream's OS::has_feature.
+static bool _library_has_feature(const String &p_feature) {
+#ifdef ANDROID_ENABLED
+	if (p_feature == "android" || p_feature == "mobile") {
+		return true;
+	}
+	if (p_feature == "pc" || p_feature == "windows" || p_feature == "linux" || p_feature == "linuxbsd" || p_feature == "macos") {
+		return false;
+	}
+#endif
+	return OS::get_singleton()->has_feature(p_feature);
+}
+
 Vector<SharedObject> GDExtensionLibraryLoader::find_extension_dependencies(const String &p_path, Ref<ConfigFile> p_config, std::function<bool(String)> p_has_feature) {
 	Vector<SharedObject> dependencies_shared_objects;
 	if (p_config->has_section("dependencies")) {
@@ -353,7 +374,7 @@ Error GDExtensionLibraryLoader::parse_gdextension_file(const String &p_path) {
 		}
 	}
 
-	library_path = find_extension_library(p_path, config, [](const String &p_feature) { return OS::get_singleton()->has_feature(p_feature); });
+	library_path = find_extension_library(p_path, config, [](const String &p_feature) { return _library_has_feature(p_feature); });
 
 	if (library_path.is_empty()) {
 		const String os_arch = OS::get_singleton()->get_name().to_lower() + "." + Engine::get_singleton()->get_architecture_name();
@@ -375,7 +396,7 @@ Error GDExtensionLibraryLoader::parse_gdextension_file(const String &p_path) {
 			FileAccess::get_modified_time(library_path));
 #endif
 
-	library_dependencies = find_extension_dependencies(p_path, config, [](const String &p_feature) { return OS::get_singleton()->has_feature(p_feature); });
+	library_dependencies = find_extension_dependencies(p_path, config, [](const String &p_feature) { return _library_has_feature(p_feature); });
 
 	// Handle icons if any are specified.
 	if (config->has_section("icons")) {
