@@ -1,0 +1,8 @@
+{
+  "upstream": {
+    "repo": "godotengine/godot",
+    "ref": "4.7.1-stable",
+    "commit": "a13da4feb8d8aefc283c3763d33a2f170a18d541"
+  },
+  "version": "4.7.1"
+}
