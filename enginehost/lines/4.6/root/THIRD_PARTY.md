@@ -11,12 +11,11 @@ upstream) has its own authoritative per-library index at
 |---|---|---|---|---|
 | Godot Engine | `plugin/4.6` line | MIT | https://github.com/godotengine/godot | entire tree (fork) |
 | Bundled third-party libraries (accesskit, freetype, harfbuzz, icu4c, and the rest of `thirdparty/`) | as pinned by the Godot 4.6 release | mixed (mostly MIT/BSD/Apache-2.0/zlib/public domain; see each entry) | see `thirdparty/README.md` | `thirdparty/` |
-| Enginehost's own Android integration (`enginehost/`) | this repository | MIT | https://github.com/Droidtop/enginehost-godot-plugin | `enginehost/` |
+| Enginehost's own Android integration (`enginehost/`) | this repository | GPL-3.0 | https://github.com/Droidtop/enginehost-godot-plugin | `enginehost/` |
 
 ## Obligations
 
 Godot Engine and everything currently vendored under `thirdparty/` are
 permissively licensed (MIT/BSD/Apache-2.0/zlib/public domain per
-`thirdparty/README.md`), so Enginehost's own additions are MIT, the most
-permissive licence compatible with all of it. `LICENSE.txt` is left exactly
+`thirdparty/README.md`), so the combined work can be distributed under GPL-3.0, and is (`LICENSE`). `LICENSE.txt` is left exactly
 as upstream ships it and is not edited by this file.
