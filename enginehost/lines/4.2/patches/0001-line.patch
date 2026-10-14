@@ -1,0 +1,231 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 6ed72267e916bf8bf5c88a5373a848d93dce708c..10c32e0e5e03702de659518936c431181229443f 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -2539,3 +2539,13 @@ branches, and linked at the [end of this file](#Past-releases).
+ - [3.2](https://github.com/godotengine/godot/blob/3.2-stable/CHANGELOG.md)
+ - [3.1](https://github.com/godotengine/godot/blob/3.1-stable/CHANGELOG.md)
+ - [3.0](https://github.com/godotengine/godot/blob/f2e19a26f556c42b7202072296dc072aaac2007c/CHANGELOG.md)
++
++## [0.9.1] - 2026-09-29
++
++### Changed
++
++- Declared version raised to 0.9.1 (testing channel) so the next publish is
++  0.9.1-1, which orders above every legacy `X.Y.<run>` build already published
++  (Enginehost reads those as `X.Y.0-<run>`). No republish; the change takes
++  effect on the next build.
++
+diff --git a/platform/android/java_godot_lib_jni.cpp b/platform/android/java_godot_lib_jni.cpp
+index 50075ed3f5e91d02fe17e6facc6cb9b23684a4d8..e1dc68e55d1de1d5c795166daac23e5d0d02f92e 100644
+--- a/platform/android/java_godot_lib_jni.cpp
++++ b/platform/android/java_godot_lib_jni.cpp
+@@ -49,6 +49,7 @@
+ #include "core/config/engine.h"
+ #include "core/config/project_settings.h"
+ #include "core/input/input.h"
++#include "core/object/script_language.h"
+ #include "main/main.h"
+ 
+ #ifdef TOOLS_ENABLED
+@@ -58,6 +59,7 @@
+ #include <android/asset_manager_jni.h>
+ #include <android/input.h>
+ #include <android/native_window_jni.h>
++#include <stdlib.h>
+ #include <unistd.h>
+ 
+ static JavaClassWrapper *java_class_wrapper = nullptr;
+@@ -142,8 +144,39 @@ JNIEXPORT void JNICALL Java_org_godotengine_godot_GodotLib_ondestroy(JNIEnv *env
+ 	_terminate(env, false);
+ }
+ 
++// The key an encrypted pack needs is not stored with the pack: core_builders.py
++// compiles it into the export template as script_encryption_key, and
++// PackedSourcePCK::try_open_pack copies those 32 bytes to decrypt the pack's
++// file directory, as does FileAccessPack for each encrypted file
++// (core/io/file_access_pack.cpp). Under Enginehost one engine build runs games
++// exported by other people, so this build's own constant is never the one a
++// given game was encrypted with, and every encrypted pack would fail in
++// ProjectSettings::_setup with "Can't open encrypted pack directory".
++//
++// The wrapper recovers a game's key from the game's own executable and exports
++// it as 64 hexadecimal characters; it is applied here, before Main::setup opens
++// the main pack. With nothing exported the compiled constant stands and this
++// build behaves exactly as upstream does. The value is removed from the
++// environment once read and is never printed.
++static void _apply_enginehost_pack_key() {
++	const char *hex = getenv("ENGINEHOST_GODOT_PACK_KEY");
++	if (!hex || !hex[0]) {
++		return;
++	}
++	String text = String::utf8(hex).strip_edges();
++	unsetenv("ENGINEHOST_GODOT_PACK_KEY");
++	if (text.length() != 64 || !text.is_valid_hex_number(false)) {
++		ERR_PRINT("Ignoring ENGINEHOST_GODOT_PACK_KEY: a pack key is 64 hexadecimal characters.");
++		return;
++	}
++	for (int i = 0; i < 32; i++) {
++		script_encryption_key[i] = (uint8_t)text.substr(i * 2, 2).hex_to_int();
++	}
++}
++
+ JNIEXPORT jboolean JNICALL Java_org_godotengine_godot_GodotLib_setup(JNIEnv *env, jclass clazz, jobjectArray p_cmdline, jobject p_godot_tts) {
+ 	setup_android_thread();
++	_apply_enginehost_pack_key();
+ 
+ 	const char **cmdline = nullptr;
+ 	jstring *j_cmdline = nullptr;
+diff --git a/platform/android/os_android.cpp b/platform/android/os_android.cpp
+index 92dc5f909f63fab8a48e0389ac35c14c97c9600c..587000540673024814c101d8fd842721d11405f3 100644
+--- a/platform/android/os_android.cpp
++++ b/platform/android/os_android.cpp
+@@ -30,6 +30,8 @@
+ 
+ #include "os_android.h"
+ 
++#include "core/io/dir_access.h"
++
+ #include "dir_access_jandroid.h"
+ #include "display_server_android.h"
+ #include "file_access_android.h"
+@@ -47,6 +49,7 @@
+ #include "scene/main/scene_tree.h"
+ #include "servers/rendering_server.h"
+ 
++#include <android/api-level.h>
+ #include <dlfcn.h>
+ #include <sys/system_properties.h>
+ 
+@@ -96,7 +99,21 @@ void OS_Android::initialize_core() {
+ 	}
+ #endif
+ 	FileAccess::make_default<FileAccessUnix>(FileAccess::ACCESS_USERDATA);
+-	FileAccess::make_default<FileAccessFilesystemJAndroid>(FileAccess::ACCESS_FILESYSTEM);
++	// Enginehost: no scoped storage below API 30, so filesystem paths are opened
++	// natively there. The Java handler (FileAccessHandler, shipped in the stock
++	// org.godotengine AAR, not built from this tree) refuses any path its
++	// StorageScope calls UNKNOWN, and before API 30 that is every path outside
++	// /storage/emulated/0 and the app's own directories: a game on a second
++	// card, a USB drive or BlueStacks' /mnt/windows/BstSharedFolder failed with
++	// "Cannot open resource pack" before the file was ever opened (Enginehost
++	// rig, Android 9). Natively the kernel's own permissions decide, as they
++	// do for the Java handler's own reads of the paths it does accept.
++	const bool unscoped_storage = android_get_device_api_level() < __ANDROID_API_R__;
++	if (unscoped_storage) {
++		FileAccess::make_default<FileAccessUnix>(FileAccess::ACCESS_FILESYSTEM);
++	} else {
++		FileAccess::make_default<FileAccessFilesystemJAndroid>(FileAccess::ACCESS_FILESYSTEM);
++	}
+ 
+ #ifdef TOOLS_ENABLED
+ 	DirAccess::make_default<DirAccessUnix>(DirAccess::ACCESS_RESOURCES);
+@@ -108,7 +125,11 @@ void OS_Android::initialize_core() {
+ 	}
+ #endif
+ 	DirAccess::make_default<DirAccessUnix>(DirAccess::ACCESS_USERDATA);
+-	DirAccess::make_default<DirAccessJAndroid>(DirAccess::ACCESS_FILESYSTEM);
++	if (unscoped_storage) {
++		DirAccess::make_default<DirAccessUnix>(DirAccess::ACCESS_FILESYSTEM);
++	} else {
++		DirAccess::make_default<DirAccessJAndroid>(DirAccess::ACCESS_FILESYSTEM);
++	}
+ 
+ 	NetSocketAndroid::make_default();
+ }
+@@ -206,7 +227,25 @@ Error OS_Android::open_dynamic_library(const String p_path, void *&p_library_han
+ 	return OK;
+ }
+ 
++// Under Enginehost this engine runs games that were exported for a desktop,
++// unmodified. A game that asks where it is running and hears "Android" takes
++// its own Android branch: Goodbye Eternity turns on its mobile mode and a
++// bigger UI, and the two buttons of its first screen collide, which they do
++// not do in the Windows original (rig and host, 2026-09-18). So the engine
++// presents the platform the game was exported for. The wrapper reads that
++// from the game's own executable and exports its OS::get_name() ("Windows",
++// "Linux", "macOS"); the person can choose Android instead, per game, and
++// with nothing exported this build answers exactly as upstream does.
++static String _enginehost_presented_platform() {
++	const char *name = getenv("ENGINEHOST_GODOT_PLATFORM");
++	return (name && name[0] != 0) ? String::utf8(name) : String();
++}
++
+ String OS_Android::get_name() const {
++	String presented = _enginehost_presented_platform();
++	if (!presented.is_empty()) {
++		return presented;
++	}
+ 	return "Android";
+ }
+ 
+@@ -606,6 +645,39 @@ String OS_Android::get_user_data_dir() const {
+ 		return data_dir_cache;
+ 	}
+ 
++	// Under Enginehost one app runs every Godot game, so the app's own files
++	// directory cannot be user://: upstream returns it here (one app, one
++	// game), and every game's savegame.save and settings.cfg would land in the
++	// same private folder, overwrite each other, stay out of the person's
++	// reach and vanish with an uninstall. The wrapper exports the save folder
++	// the person chose in Enginehost; user:// is this project's own directory
++	// inside it, composed exactly as OS_Unix::get_user_data_dir composes it on
++	// a desktop from application/config/name, use_custom_user_dir and
++	// custom_user_dir_name (this engine line has no p_user_dir parameter).
++	const char *enginehost_save_path = getenv("ENGINEHOST_SAVE_PATH");
++	if (enginehost_save_path && enginehost_save_path[0] != 0) {
++		String base = String::utf8(enginehost_save_path);
++		String appname = get_safe_dir_name(GLOBAL_GET("application/config/name"));
++		String data_dir;
++		if (!appname.is_empty()) {
++			bool use_custom_dir = GLOBAL_GET("application/config/use_custom_user_dir");
++			if (use_custom_dir) {
++				String custom_dir = get_safe_dir_name(GLOBAL_GET("application/config/custom_user_dir_name"), true);
++				if (custom_dir.is_empty()) {
++					custom_dir = appname;
++				}
++				data_dir = base.path_join(custom_dir);
++			} else {
++				data_dir = base.path_join(get_godot_dir_name()).path_join("app_userdata").path_join(appname);
++			}
++		} else {
++			data_dir = base.path_join(get_godot_dir_name()).path_join("app_userdata").path_join("[unnamed project]");
++		}
++		DirAccess::make_dir_recursive_absolute(data_dir);
++		data_dir_cache = data_dir;
++		return data_dir_cache;
++	}
++
+ 	String data_dir = godot_io_java->get_user_data_dir();
+ 	if (!data_dir.is_empty()) {
+ 		data_dir_cache = _remove_symlink(data_dir);
+@@ -730,6 +802,29 @@ void OS_Android::benchmark_dump() {
+ }
+ 
+ bool OS_Android::_check_internal_feature_support(const String &p_feature) {
++	// The tags a desktop build of the presented platform answers to
++	// (OS_Windows, OS_LinuxBSD and OS_MacOS::_check_internal_feature_support,
++	// and their identifiers), in place of this platform's own "mobile". The
++	// platform's identifier tag itself follows get_name() in OS::has_feature.
++	String presented = _enginehost_presented_platform();
++	if (!presented.is_empty()) {
++		if (p_feature == "pc") {
++			return true;
++		}
++		if (p_feature == "mobile") {
++			return false;
++		}
++		if (presented == "Windows" && p_feature == "windows") {
++			return true;
++		}
++		if (presented == "Linux" && (p_feature == "linux" || p_feature == "linuxbsd")) {
++			return true;
++		}
++		if (presented == "macOS" && p_feature == "macos") {
++			return true;
++		}
++	}
++
+ 	if (p_feature == "system_fonts") {
+ 		return true;
+ 	}
