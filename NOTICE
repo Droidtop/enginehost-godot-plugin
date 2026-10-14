@@ -1,0 +1,12 @@
+Godot plugin for Enginehost
+Enginehost wrapper and integration code: Copyright the Enginehost contributors, GNU General Public
+License, version 3 (LICENSE).
+
+Upstream: Godot Engine (https://github.com/godotengine/godot), MIT (plus the licences of thirdparty/, mostly MIT, BSD, Apache-2.0, zlib and public domain).
+MIT allows the combined work to be GPL-3.0.
+Upstream's own licence and notice files stay in the tree unchanged: LICENSE.txt, LOGO_LICENSE.txt, COPYRIGHT.txt, thirdparty/.
+The combined work is distributed under GPL-3.0 (owner rule, 2026-10-14: a codebase that can be
+GPL-3.0 must be). Every upstream copyright and licence notice in the source files stays as it is.
+Lines 4.2 to 4.5 also build the Spine runtimes into the bundle (declared as "Spine Runtimes License" in
+enginehost/bundle-metadata.json). They are fetched at build time, are not part of this repository and are not
+covered by GPL-3.0.
