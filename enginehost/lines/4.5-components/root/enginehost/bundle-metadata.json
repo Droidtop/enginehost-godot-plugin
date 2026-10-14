@@ -67,7 +67,7 @@
     }
   },
   "licenses": [
-    "MIT",
+    "GPL-3.0 (the Enginehost integration and the combined bundle)", "MIT (Godot Engine)",
     "Spine Runtimes License"
   ]
 }
