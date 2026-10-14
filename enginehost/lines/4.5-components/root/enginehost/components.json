@@ -1,0 +1,13 @@
+{
+  "components": [
+    {
+      "name": "spine-godot",
+      "version": "4.2",
+      "artifact": "spine-godot",
+      "library": "libspine_godot.so",
+      "entrySymbol": "spine_godot_library_init",
+      "compatibilityMinimum": "4.5",
+      "license": "LICENSE-spine-runtimes.txt"
+    }
+  ]
+}
