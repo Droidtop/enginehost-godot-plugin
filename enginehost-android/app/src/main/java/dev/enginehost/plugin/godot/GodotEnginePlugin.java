@@ -1,25 +1,19 @@
 package dev.enginehost.plugin.godot;
 
 import android.content.Context;
-import android.content.res.loader.ResourcesLoader;
-import android.content.res.loader.ResourcesProvider;
 import android.os.Build;
-import android.os.ParcelFileDescriptor;
 import androidx.fragment.app.FragmentActivity;
 import dev.enginehost.api.EnginePlugin;
 import dev.enginehost.api.EnginePluginSession;
 import java.io.File;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.List;
 
 /** In-process Godot runtime hosted by Enginehost's FragmentActivity. */
 public final class GodotEnginePlugin implements EnginePlugin {
     /** The bundle payload carrying this plugin's compiled resources. */
-    private static final String RESOURCE_APK = "runtime/godot.apk";
 
     private EngineHostGodotFragment fragment;
-    private final List<AutoCloseable> resourceHandles = new ArrayList<>();
 
     @Override public void onCreate(EnginePluginSession session) throws Exception {
         if (!"godot".equals(session.engine()) || !"standard".equals(session.engineContext()))
@@ -31,20 +25,113 @@ public final class GodotEnginePlugin implements EnginePlugin {
         // than inside the engine where the report is the engine's to make.
         GodotPackResolver.Pack pack = GodotPackResolver.resolve(root, session.execFile());
         FragmentActivity activity = (FragmentActivity) session.host().context();
-        requireGodotCanRead(activity, pack == null ? root : pack.file);
+        requireGodotCanRead(activity, pack.file);
         requireRunnableHere(pack, session.runtimeVersion());
-        // Before the engine exists, so a bundle missing a component it
-        // declares fails as a startup error instead of a game without it.
-        java.util.Set<String> components = GodotComponents.configs(session);
-        attachResourcesWhereGodotLooks(activity, session.bundleDirectory());
+        supplyPackKey(root, pack);
+        presentExportPlatform(root, pack, session.optionsJson());
+        // Where user:// goes: the save folder the person chose in Enginehost.
+        // The engine reads this in OS_Android::get_user_data_dir and puts the
+        // project's own user directory inside it, as it does on a desktop.
+        // Exported before the engine library loads, so it is there whenever
+        // the engine first asks.
+        android.system.Os.setenv("ENGINEHOST_SAVE_PATH",
+                session.host().saveDirectory().getAbsolutePath(), true);
         loadNativeRuntime(session.bundleDirectory());
         if (session.display().getId() == android.view.View.NO_ID)
             session.display().setId(android.view.View.generateViewId());
         fragment = new EngineHostGodotFragment(
-            root, pack == null ? null : pack.file, session.optionsJson(), components);
-        activity.getSupportFragmentManager().beginTransaction()
-            .add(session.display().getId(), fragment, "enginehost-godot-runtime")
-            .commitNow();
+            pack.file, session.optionsJson(), session.host());
+        // A failed engine start is this plugin's startup error, reported
+        // through Enginehost like any other: the launch screen then says why
+        // and offers Report a problem. The engine's own answer to it is an
+        // alert over a black screen that then kills the process, and the
+        // person never learned what happened in Enginehost's terms (rig,
+        // 2026-09-25). Whether the engine started is read from it directly
+        // (its render view exists only after a successful setup), not from a
+        // callback, which some lines deliver later on the render thread.
+        try {
+            activity.getSupportFragmentManager().beginTransaction()
+                .add(session.display().getId(), fragment, "enginehost-godot-runtime")
+                .commitNow();
+        } catch (IllegalStateException refused) {
+            throw new IOException(GodotEngineLog.failureMessage(refused.getMessage()), refused);
+        }
+        if (!fragment.engineStarted()) throw new IOException(GodotEngineLog.failureMessage(null));
+    }
+
+    /**
+     * Tells the engine which platform to present to the game: the one the
+     * game was exported for, unless the person chose Android for this game
+     * ({@code "platform": "android"} in the folder's options). Exported for
+     * the engine to pick up in OS_Android::get_name, before the engine
+     * library loads.
+     */
+    private static void presentExportPlatform(File gameRoot, GodotPackResolver.Pack pack,
+            String optionsJson) throws Exception {
+        String choice = new org.json.JSONObject(optionsJson == null ? "{}" : optionsJson)
+                .optString("platform", "export");
+        if ("android".equals(choice)) {
+            android.util.Log.i("EnginehostGodot", "Presenting Android to the game, as chosen for it");
+            return;
+        }
+        String platform = GodotExportPlatform.of(gameRoot, pack);
+        if (platform == null) {
+            android.util.Log.i("EnginehostGodot", "No executable beside the pack to tell its "
+                    + "platform by; the game sees Android");
+            return;
+        }
+        android.util.Log.i("EnginehostGodot", "Presenting " + platform + " to the game, the "
+                + "platform it was exported for");
+        android.system.Os.setenv("ENGINEHOST_GODOT_PLATFORM", platform, true);
+    }
+
+    /**
+     * Hands the engine the key an encrypted pack needs, recovered from the
+     * game's own executable.
+     *
+     * A pack exported with an encryption key has PACK_DIR_ENCRYPTED in its
+     * header, and try_open_pack decrypts its file directory with the 32 bytes
+     * of script_encryption_key that were compiled into the export template the
+     * game shipped with. Enginehost's engine carries its own constant, never
+     * that game's, so without this every encrypted pack fails in
+     * ProjectSettings::_setup with "Can't open encrypted pack directory". The
+     * key is exported for the engine to pick up in
+     * platform/android/java_godot_lib_jni.cpp before Main::setup, and is
+     * neither logged nor written anywhere.
+     */
+    private static void supplyPackKey(File gameRoot, GodotPackResolver.Pack pack)
+            throws IOException {
+        if (!pack.encrypted) return;
+        GodotPackKey.EncryptedDirectory directory =
+                GodotPackKey.readEncryptedDirectory(pack.file, pack.directoryOffset);
+        File folder = pack.file.getParentFile() == null ? gameRoot : pack.file.getParentFile();
+        // The carrier of an embedded pack holds its own key; a loose pack's key
+        // is in the executable the export named to match it.
+        File preferred = pack.embedded ? pack.file : GodotPackKey.siblingOf(pack.file);
+        List<File> executables = GodotPackKey.executablesIn(folder, preferred);
+        StringBuilder tried = new StringBuilder();
+        for (File executable : executables) {
+            byte[] key = GodotPackKey.recover(executable, directory);
+            if (key != null) {
+                try {
+                    android.system.Os.setenv("ENGINEHOST_GODOT_PACK_KEY",
+                            GodotPackKey.hex(key), true);
+                } catch (android.system.ErrnoException refused) {
+                    throw new IOException("the key for this game's pack could not be "
+                            + "passed to the engine", refused);
+                }
+                return;
+            }
+            if (tried.length() > 0) tried.append(", ");
+            tried.append('"').append(executable.getName()).append('"');
+        }
+        throw new IOException("\"" + gameRoot.getName() + "\" ships an encrypted pack, and "
+                + "the key it was encrypted with could not be found. Godot keeps that key "
+                + "inside the game's own program, so this folder needs the .exe or .x86_64 "
+                + "the pack was exported beside. "
+                + (tried.length() == 0
+                        ? "There is no Windows or Linux program in this folder to read it from."
+                        : "Read without finding it: " + tried + "."));
     }
 
     /**
@@ -55,7 +142,7 @@ public final class GodotEnginePlugin implements EnginePlugin {
      */
     private static void requireRunnableHere(GodotPackResolver.Pack pack, String runtimeVersion)
             throws IOException {
-        if (pack == null || pack.engineVersion == null || runtimeVersion == null) return;
+        if (pack.engineVersion == null || runtimeVersion == null) return;
         int[] built = series(pack.engineVersion);
         int[] here = series(runtimeVersion);
         if (built == null || here == null) return;
@@ -77,56 +164,6 @@ public final class GodotEnginePlugin implements EnginePlugin {
         }
     }
 
-    /**
-     * Godot keeps {@code context.applicationContext}, not the activity
-     * ({@code Godot.getInstance} in the engine's own Kotlin), and looks up
-     * things like {@code R.dimen.text_edit_height} through that context's
-     * Resources. Enginehost attaches this bundle's resources to the
-     * activity's Resources, which is a different object, so the engine
-     * would read straight past them. Attach them where it actually looks.
-     */
-    private void attachResourcesWhereGodotLooks(Context activity, File bundle) throws IOException {
-        Context application = activity.getApplicationContext();
-        if (application == null || application.getResources() == activity.getResources()) {
-            return;
-        }
-        File apk = new File(bundle, RESOURCE_APK).getCanonicalFile();
-        if (!apk.isFile()) {
-            throw new IOException("This Godot bundle is missing " + RESOURCE_APK);
-        }
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-            throw new IOException(
-                    "Godot needs Android 11 or newer here: below it the engine cannot be "
-                            + "given this bundle's resources.");
-        }
-        // Held open for as long as the engine may read them.
-        resourceHandles.addAll(ApiR.addLoader(application, apk));
-    }
-
-    /** Kept apart so a pre-11 device never has to verify API 30 classes. */
-    @androidx.annotation.RequiresApi(Build.VERSION_CODES.R)
-    private static final class ApiR {
-        private ApiR() {}
-
-        static List<? extends AutoCloseable> addLoader(Context context, File apk)
-                throws IOException {
-            ParcelFileDescriptor descriptor =
-                    ParcelFileDescriptor.open(apk, ParcelFileDescriptor.MODE_READ_ONLY);
-            ResourcesProvider provider = ResourcesProvider.loadFromApk(descriptor);
-            ResourcesLoader loader = new ResourcesLoader();
-            loader.addProvider(provider);
-            context.getResources().addLoaders(loader);
-            return java.util.Arrays.asList(provider, descriptor);
-        }
-    }
-
-    /**
-     * Godot's own file layer refuses any path outside the app's own
-     * directories and shared storage unless the host holds All Files
-     * Access, whatever the filesystem permits. Games live on removable
-     * storage, so without it the engine would start and then fail to open
-     * the pack it was handed. Say so here instead.
-     */
     private static void requireGodotCanRead(Context context, File target) throws IOException {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R
                 || android.os.Environment.isExternalStorageManager()) {
@@ -165,13 +202,5 @@ public final class GodotEnginePlugin implements EnginePlugin {
 
     @Override public void onDestroy() {
         fragment = null;
-        for (int i = resourceHandles.size() - 1; i >= 0; i--) {
-            try {
-                resourceHandles.get(i).close();
-            } catch (Exception ignored) {
-                // Nothing useful remains to be done with a handle we are dropping.
-            }
-        }
-        resourceHandles.clear();
     }
 }

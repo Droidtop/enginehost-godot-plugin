@@ -1,7 +1,6 @@
 package dev.enginehost.api;
 import android.view.ViewGroup;
 import java.io.File;
-import java.util.Map;
 public final class EnginePluginSession {
     public File bundleDirectory() { return null; }
     public ViewGroup display() { return null; }
@@ -14,6 +13,4 @@ public final class EnginePluginSession {
     public String capabilityId() { return ""; }
     public String execFile() { return null; }
     public String optionsJson() { return null; }
-    public Map<String, String> runtimeRequirements() { return null; }
-    public Map<String, String> runtimeComponents() { return null; }
 }

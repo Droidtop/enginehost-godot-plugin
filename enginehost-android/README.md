@@ -1,14 +1,14 @@
-# Godot 4.7.1 plugin
+# Godot 4.5.1 plugin
 
 This Enginehost bundle embeds the official Godot Android library
-`org.godotengine:godot:4.7.1.stable` and attaches its fragment directly to the
+`org.godotengine:godot:4.5.1.stable` and attaches its fragment directly to the
 host runtime process. It accepts a live game folder and runs it through Godot's
-documented `--path` / `--main-pack` command line.
+documented `--main-pack` command line.
 Additional engine settings may be passed as a string array in
 `options.commandLine`; they are appended after the plugin-selected project or
 pack argument. A normal game needs none of them.
 
-The capability covers the Godot 4.7 series while retaining 4.7.1 as the exact
+The capability covers the Godot 4.5 series while retaining 4.5.1 as the exact
 runtime metric. Godot 3.x and other 4.x lines belong in co-installable bundles.
 
 ## What the folder may hold
@@ -18,7 +18,8 @@ this order:
 
 1. the folder's `execFile`, when one is set;
 2. the folder's single `.pck` or `.zip`;
-3. a `project.godot`, which is opened with `--path`;
+3. a `project.godot` is refused with a sentence: on Android `res://` is the
+   APK's own assets, so an unexported project cannot be opened;
 4. otherwise, the first file in the folder carrying an appended pack.
 
 A self-contained export -- Godot's own default, a single executable with the
@@ -36,23 +37,47 @@ that exception as "the APK expansion pack is missing" and replaces the game with
 its OBB downloader UI, so a launch error would vanish behind a progress bar for a
 download that cannot exist.
 
-## Runtime components
+## Encrypted packs
 
-A game can need more than the stock engine: Spine animations, or any other
-GDExtension or engine module its desktop build carried. The engine stays
-stock; a component is signed bundle payload under
-`components/<name>/<version>/` (its libraries in `lib/arm64-v8a/` and
-`lib/x86_64/`, its licence, and `<name>.gdextension` naming the libraries
-relative to itself), and the bundle declares one capability per component
-combination it serves (`runtimeComponents`). Enginehost selects the capability
-against the game's `runtimeRequirements` and hands the plugin the selected
-capability's components (`EnginePluginSession.runtimeComponents()`).
-`GodotComponents` turns them into config paths and the fragment registers them
-as a host `GodotPlugin`, whose `getPluginGDExtensionLibrariesPaths()` Godot
-reads in `OS_Android::load_platform_gdextensions` during core registration,
-before any game script parses. The game's own files are never edited. How to
-add a component: Enginehost docs/engine-bundle-format.md, "Adding a runtime
-component".
+A project exported with an encryption key ships a pack whose file directory,
+and usually whose files, are AES-256 encrypted. `try_open_pack` decrypts the
+directory with the 32 bytes of `script_encryption_key`
+(`core/io/file_access_pack.cpp`), and that array is not read from anywhere at
+run time: `core/core_builders.py` compiles it into the export template from the
+build's `SCRIPT_AES256_ENCRYPTION_KEY`. So the key lives only inside the
+binaries the game shipped with, and this bundle's own engine, built with the
+default constant, fails such a game in `ProjectSettings::_setup` with
+`Can't open encrypted pack directory`.
+
+`GodotPackKey` reads the key back out of the game's own program. Every 32-byte
+window of every initialized, non-executable section of the `.exe` or `.x86_64`
+is a candidate, and a candidate is accepted only when decrypting the game's
+real pack directory with it reproduces the MD5 the pack recorded -- the same
+check `FileAccessEncrypted::open_and_parse` makes. A wrong key therefore cannot
+be accepted. Writable sections are searched first, because the array is a
+mutable global and `.data` is small; a one-AES-block filter on the first
+plaintext block rejects nearly every candidate before any full decrypt. On the
+two builds of Anomalous Coffee Machine 2 the key comes back in a fraction of a
+second, and the Windows and Linux builds yield the same key.
+
+The plugin then exports it as `ENGINEHOST_GODOT_PACK_KEY`, 64 hexadecimal
+characters, which `platform/android/java_godot_lib_jni.cpp` applies to
+`script_encryption_key` before `Main::setup`, removing it from the environment
+as it does. With nothing exported the compiled constant stands and the engine
+behaves exactly as upstream. The key is never logged, shown or written to disk.
+
+A folder with an encrypted pack and no program to read the key from fails
+before the engine starts, naming the game, saying the pack is encrypted, and
+listing the files that were read without finding it.
+
+`tools/GodotPackKeyCheck.java` runs the shipped routine on a workstation,
+against fixtures it builds itself and, given a game's executable and pack, a
+real game:
+
+    javac -d /tmp/godot-keycheck         app/src/main/java/dev/enginehost/plugin/godot/GodotPackKey.java         app/src/main/java/dev/enginehost/plugin/godot/GodotPackResolver.java         tools/GodotPackKeyCheck.java
+    java -cp /tmp/godot-keycheck dev.enginehost.plugin.godot.GodotPackKeyCheck         [<game executable> <pack>]
+
+It reports a recovered key as a digest of itself, never as the key.
 
 ## All Files Access
 
@@ -90,16 +115,36 @@ therefore cannot use the published Maven artifact for external packs; it needs
 `platform=android target=template_release disable_path_overrides=no` built from
 the Godot source this repository already carries.
 
-This branch is cut from 4.7.1 and is subject to that restriction: its bundle
-cannot load external packs until such a source build exists. Branches cut from
-4.6 and earlier, including `plugin/4.5`, are unaffected and work as shipped.
+This branch is cut from 4.5.1, which predates the option entirely, so the
+published artifact loads an external pack exactly as shipped and no source
+build is involved here. The branches cut from 4.7 and later, `plugin-core`
+among them, are the ones that carry the restriction.
 
-## Known gap: save location
+## The platform a game sees
+
+A game exported for Windows or Linux runs here unmodified, and it behaves as
+it does on that desktop only if the engine tells it that is where it is.
+Asked `OS.get_name()` and the `pc`/`mobile`/platform feature tags, this engine
+answers for the platform the game was exported for, which the wrapper reads
+from the game's own executable (PE, ELF or Mach-O) and exports as
+`ENGINEHOST_GODOT_PLATFORM`. Feature-tagged project settings follow, so a
+game takes its desktop values (`rendering_method`, not
+`rendering_method.mobile`); `options.commandLine` can still force a renderer
+per game. A pack with no executable beside it sees Android, as does any game
+whose folder sets `"options": {"platform": "android"}`, for a game whose own
+touch layout is wanted.
+
+## Save location
 
 Godot has no command line option for the user data directory, on any released
-line. `user://` therefore resolves to the runtime app's own Android data
-directory, not to the save directory Enginehost hands the session. Redirecting
-it needs a mechanism other than the command line.
+line, and upstream `OS_Android::get_user_data_dir` ignores the project's own
+user directory name and returns the app's files directory: one app, one game.
+Under Enginehost one app runs every Godot game, so every game's `savegame.save`
+landed in the same private folder. The plugin exports the save folder the person
+chose as `ENGINEHOST_SAVE_PATH`, and this fork's `OS_Android::get_user_data_dir`
+puts the project's own directory inside it under the desktop's own rule
+(`OS_Unix::get_user_data_dir`): `godot/app_userdata/<project name>`, or the
+project's custom user directory. Outside Enginehost nothing changes.
 
 Godot is copyright its contributors and licensed under MIT. The Maven artifact
 retains upstream notices; see <https://godotengine.org/license/> and the
