@@ -1,7 +1,7 @@
 package dev.enginehost.plugin.godot;
 
 import android.util.Log;
-import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -15,13 +15,18 @@ import org.json.JSONObject;
 public final class EngineHostGodotFragment extends GodotFragment {
     private static final String TAG = "EnginehostGodot";
 
-    private final File pack;
+    private final String packPath;
+    private final FileInputStream packStream;
     private final String optionsJson;
     private final EngineHost host;
 
-    /** @param pack what {@code --main-pack} names: a .pck, or the export that carries one */
-    EngineHostGodotFragment(File pack, String optionsJson, EngineHost host) {
-        this.pack = pack;
+    /**
+     * @param packPath what {@code --main-pack} names: a .pck path, or a file descriptor path like /proc/self/fd/123
+     * @param packStream the open stream for the pack, kept open so the file descriptor stays valid; may be null if using a regular path
+     */
+    EngineHostGodotFragment(String packPath, FileInputStream packStream, String optionsJson, EngineHost host) {
+        this.packPath = packPath;
+        this.packStream = packStream;
         this.optionsJson = optionsJson;
         this.host = host;
     }
@@ -83,12 +88,23 @@ public final class EngineHostGodotFragment extends GodotFragment {
         }
     }
 
+    @Override public void onDestroy() {
+        super.onDestroy();
+        if (packStream != null) {
+            try {
+                packStream.close();
+            } catch (IOException e) {
+                Log.w(TAG, "Failed to close pack stream", e);
+            }
+        }
+    }
+
     @Override public List<String> getCommandLine() {
         try {
             List<String> arguments = new ArrayList<>(super.getCommandLine());
-            Log.i(TAG, "Loading pack " + pack.getAbsolutePath());
+            Log.i(TAG, "Loading pack " + packPath);
             arguments.add("--main-pack");
-            arguments.add(pack.getAbsolutePath());
+            arguments.add(packPath);
             JSONArray extra =
                     new JSONObject(optionsJson == null ? "{}" : optionsJson).optJSONArray("commandLine");
             if (extra != null) {
