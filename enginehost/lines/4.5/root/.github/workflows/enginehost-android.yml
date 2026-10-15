@@ -239,9 +239,9 @@ jobs:
     needs: bundle
     permissions:
       contents: read
-    uses: Droidtop/enginehost/.github/workflows/sign-engine-bundle.yml@1a06d578f5f59d26f93fdce547e42d65d91fa53b
+    uses: Droidtop/enginehost/.github/workflows/sign-engine-bundle.yml@8b7b9b5230273642249b113934defc640121c70d
     with:
-      tooling-sha: 1a06d578f5f59d26f93fdce547e42d65d91fa53b
+      tooling-sha: 8b7b9b5230273642249b113934defc640121c70d
       unsigned-artifact: ${{ needs.bundle.outputs.bundle-id }}-unsigned
       bundle: ${{ needs.bundle.outputs.bundle-id }}.enginehost.tar.xz
       artifact-name: ${{ needs.bundle.outputs.bundle-id }}
@@ -263,9 +263,9 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish }}
     permissions:
       contents: write
-    uses: Droidtop/enginehost/.github/workflows/publish-engine-bundle.yml@1a06d578f5f59d26f93fdce547e42d65d91fa53b
+    uses: Droidtop/enginehost/.github/workflows/publish-engine-bundle.yml@8b7b9b5230273642249b113934defc640121c70d
     with:
-      tooling-sha: 1a06d578f5f59d26f93fdce547e42d65d91fa53b
+      tooling-sha: 8b7b9b5230273642249b113934defc640121c70d
       artifact-name: ${{ needs.bundle.outputs.bundle-id }}
       channel: ${{ inputs.channel }}
       tag: ${{ inputs.tag }}
@@ -282,9 +282,9 @@ jobs:
     if: ${{ github.event_name == 'push' }}
     permissions:
       contents: write
-    uses: Droidtop/enginehost/.github/workflows/publish-engine-bundle.yml@1a06d578f5f59d26f93fdce547e42d65d91fa53b
+    uses: Droidtop/enginehost/.github/workflows/publish-engine-bundle.yml@8b7b9b5230273642249b113934defc640121c70d
     with:
-      tooling-sha: 1a06d578f5f59d26f93fdce547e42d65d91fa53b
+      tooling-sha: 8b7b9b5230273642249b113934defc640121c70d
       artifact-name: ${{ needs.bundle.outputs.bundle-id }}
       channel: unstable
     secrets:
