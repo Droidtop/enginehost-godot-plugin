@@ -239,9 +239,9 @@ jobs:
     needs: bundle
     permissions:
       contents: read
-    uses: Droidtop/enginehost/.github/workflows/sign-engine-bundle.yml@f26c8161cc25de6743bd11f99d9f5879205a710a
+    uses: Droidtop/enginehost/.github/workflows/sign-engine-bundle.yml@1a06d578f5f59d26f93fdce547e42d65d91fa53b
     with:
-      tooling-sha: f26c8161cc25de6743bd11f99d9f5879205a710a
+      tooling-sha: 1a06d578f5f59d26f93fdce547e42d65d91fa53b
       unsigned-artifact: ${{ needs.bundle.outputs.bundle-id }}-unsigned
       bundle: ${{ needs.bundle.outputs.bundle-id }}.enginehost.tar.xz
       artifact-name: ${{ needs.bundle.outputs.bundle-id }}
@@ -251,6 +251,7 @@ jobs:
       channel: ${{ inputs.channel }}
     secrets:
       ENGINEHOST_SIGNING_KEY_PEM: ${{ secrets.ENGINEHOST_SIGNING_KEY_PEM }}
+      ENGINEHOST_CERTIFICATE_KEY_PEM: ${{ secrets.ENGINEHOST_CERTIFICATE_KEY_PEM }}
 
   publish:
     # Promotion is deliberate: a manual dispatch names the channel. Stable
@@ -262,9 +263,9 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish }}
     permissions:
       contents: write
-    uses: Droidtop/enginehost/.github/workflows/publish-engine-bundle.yml@f26c8161cc25de6743bd11f99d9f5879205a710a
+    uses: Droidtop/enginehost/.github/workflows/publish-engine-bundle.yml@1a06d578f5f59d26f93fdce547e42d65d91fa53b
     with:
-      tooling-sha: f26c8161cc25de6743bd11f99d9f5879205a710a
+      tooling-sha: 1a06d578f5f59d26f93fdce547e42d65d91fa53b
       artifact-name: ${{ needs.bundle.outputs.bundle-id }}
       channel: ${{ inputs.channel }}
       tag: ${{ inputs.tag }}
@@ -281,9 +282,9 @@ jobs:
     if: ${{ github.event_name == 'push' }}
     permissions:
       contents: write
-    uses: Droidtop/enginehost/.github/workflows/publish-engine-bundle.yml@f26c8161cc25de6743bd11f99d9f5879205a710a
+    uses: Droidtop/enginehost/.github/workflows/publish-engine-bundle.yml@1a06d578f5f59d26f93fdce547e42d65d91fa53b
     with:
-      tooling-sha: f26c8161cc25de6743bd11f99d9f5879205a710a
+      tooling-sha: 1a06d578f5f59d26f93fdce547e42d65d91fa53b
       artifact-name: ${{ needs.bundle.outputs.bundle-id }}
       channel: unstable
     secrets:
