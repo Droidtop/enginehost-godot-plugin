@@ -36,6 +36,12 @@ public final class GodotEnginePlugin implements EnginePlugin {
         // the engine first asks.
         android.system.Os.setenv("ENGINEHOST_SAVE_PATH",
                 session.host().saveDirectory().getAbsolutePath(), true);
+        // This game's own save folder, when the launching app gave one: user://
+        // is that folder as is (Droidtop/tracker#580).
+        java.io.File gameSave = gameSaveDirectory(session);
+        if (gameSave != null) {
+            android.system.Os.setenv("ENGINEHOST_GAME_SAVE_PATH", gameSave.getAbsolutePath(), true);
+        }
         loadNativeRuntime(session.bundleDirectory());
         if (session.display().getId() == android.view.View.NO_ID)
             session.display().setId(android.view.View.generateViewId());
@@ -202,5 +208,14 @@ public final class GodotEnginePlugin implements EnginePlugin {
 
     @Override public void onDestroy() {
         fragment = null;
+    }
+
+    /** The game's own save folder from the launching app, or null, also on an Enginehost too old to know it. */
+    private static java.io.File gameSaveDirectory(EnginePluginSession session) {
+        try {
+            return session.host().gameSaveDirectory();
+        } catch (AbstractMethodError | NoSuchMethodError older) {
+            return null;
+        }
     }
 }

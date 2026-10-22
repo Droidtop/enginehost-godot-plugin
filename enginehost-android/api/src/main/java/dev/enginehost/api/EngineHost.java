@@ -4,6 +4,8 @@ import java.io.File;
 public interface EngineHost {
     Context context();
     File saveDirectory();
+    /** The game's own save folder from the launching app, used as is; null otherwise (Enginehost's plugin API). */
+    default File gameSaveDirectory() { return null; }
     File cacheDirectory();
     EngineFileSystem fileSystem();
     void finish();
