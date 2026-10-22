@@ -622,6 +622,14 @@ String OS_Android::get_user_data_dir() const {
 	// a desktop from application/config/name, use_custom_user_dir and
 	// custom_user_dir_name (this engine line has no p_user_dir parameter).
 	const char *enginehost_save_path = getenv("ENGINEHOST_SAVE_PATH");
+	// The launching app gave this game's own save folder (Droidtop/tracker#580):
+	// user:// is that folder, as is. Enginehost decides where saves go.
+	const char *enginehost_game_save_path = getenv("ENGINEHOST_GAME_SAVE_PATH");
+	if (enginehost_game_save_path && enginehost_game_save_path[0] != 0) {
+		data_dir_cache = String::utf8(enginehost_game_save_path);
+		DirAccess::make_dir_recursive_absolute(data_dir_cache);
+		return data_dir_cache;
+	}
 	if (enginehost_save_path && enginehost_save_path[0] != 0) {
 		String base = String::utf8(enginehost_save_path);
 		String appname = get_safe_dir_name(GLOBAL_GET("application/config/name"));
