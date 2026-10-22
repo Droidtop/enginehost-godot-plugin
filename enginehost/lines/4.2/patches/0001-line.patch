@@ -159,7 +159,7 @@ index 92dc5f909f63fab8a48e0389ac35c14c97c9600c..587000540673024814c101d8fd842721
  	return "Android";
  }
  
-@@ -606,6 +645,39 @@ String OS_Android::get_user_data_dir() const {
+@@ -606,6 +645,47 @@ String OS_Android::get_user_data_dir() const {
  		return data_dir_cache;
  	}
  
@@ -173,6 +173,14 @@ index 92dc5f909f63fab8a48e0389ac35c14c97c9600c..587000540673024814c101d8fd842721
 +	// a desktop from application/config/name, use_custom_user_dir and
 +	// custom_user_dir_name (this engine line has no p_user_dir parameter).
 +	const char *enginehost_save_path = getenv("ENGINEHOST_SAVE_PATH");
++	// The launching app gave this game's own save folder (Droidtop/tracker#580):
++	// user:// is that folder, as is. Enginehost decides where saves go.
++	const char *enginehost_game_save_path = getenv("ENGINEHOST_GAME_SAVE_PATH");
++	if (enginehost_game_save_path && enginehost_game_save_path[0] != 0) {
++		data_dir_cache = String::utf8(enginehost_game_save_path);
++		DirAccess::make_dir_recursive_absolute(data_dir_cache);
++		return data_dir_cache;
++	}
 +	if (enginehost_save_path && enginehost_save_path[0] != 0) {
 +		String base = String::utf8(enginehost_save_path);
 +		String appname = get_safe_dir_name(GLOBAL_GET("application/config/name"));
@@ -199,7 +207,7 @@ index 92dc5f909f63fab8a48e0389ac35c14c97c9600c..587000540673024814c101d8fd842721
  	String data_dir = godot_io_java->get_user_data_dir();
  	if (!data_dir.is_empty()) {
  		data_dir_cache = _remove_symlink(data_dir);
-@@ -730,6 +802,29 @@ void OS_Android::benchmark_dump() {
+@@ -730,6 +810,29 @@ void OS_Android::benchmark_dump() {
  }
  
  bool OS_Android::_check_internal_feature_support(const String &p_feature) {

@@ -1,0 +1,40 @@
+name: Publish a drafted stable release
+
+# Publishes again a stable release that was turned back into a draft, so that
+# resign-stable.yml can re-sign it (owner, 2026-10-16, Droidtop/tracker#550:
+# the three Godot stable releases, drafted since 2026-10-14, come back).
+# Refuses anything but a draft that is not a pre-release; never marks it latest.
+on:
+  # Only so GitHub registers this dispatch-only workflow; the job is skipped.
+  push:
+    branches: [plugin-core]
+    paths: [.github/workflows/publish-drafted-stable.yml]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The drafted stable release to publish
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Publish the draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "bad tag '$TAG'" >&2; exit 1; }
+          # A draft is not served by tag, so find it in the list.
+          id="$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --paginate \
+            --jq ".[] | select(.tag_name == \"$TAG\" and .draft and (.prerelease | not)) | .id" | head -1)"
+          [ -n "$id" ] || { echo "::error::$TAG is not a drafted stable release" >&2; exit 1; }
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$id" -F draft=false -f make_latest=false \
+            --jq '"published \(.tag_name) draft=\(.draft) prerelease=\(.prerelease)"'
