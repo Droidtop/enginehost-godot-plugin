@@ -758,6 +758,14 @@ String OS_Android::get_user_data_dir(const String &p_user_dir) const {
 	// (OS_Unix::get_user_data_dir: <data path>/<p_user_dir>, i.e.
 	// godot/app_userdata/<project name> or the project's custom user dir).
 	const char *enginehost_save_path = getenv("ENGINEHOST_SAVE_PATH");
+	// The launching app gave this game's own save folder (Droidtop/tracker#580):
+	// user:// is that folder, as is. Enginehost decides where saves go.
+	const char *enginehost_game_save_path = getenv("ENGINEHOST_GAME_SAVE_PATH");
+	if (enginehost_game_save_path && enginehost_game_save_path[0] != 0) {
+		data_dir_cache = String::utf8(enginehost_game_save_path);
+		DirAccess::make_dir_recursive_absolute(data_dir_cache);
+		return data_dir_cache;
+	}
 	if (enginehost_save_path && enginehost_save_path[0] != 0 && !p_user_dir.is_empty()) {
 		String data_dir = String::utf8(enginehost_save_path).path_join(p_user_dir);
 		DirAccess::make_dir_recursive_absolute(data_dir);
