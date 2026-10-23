@@ -1,50 +1,50 @@
 {
-  "bundleId": "dev.enginehost.godot.v40.v1",
+  "kind": "component",
+  "bundleId": "dev.enginehost.godot.component.spine-godot.v42",
   "engine": "godot",
-  "pluginVersion": "0.9.5",
+  "pluginVersion": "0.9.0",
   "apiVersion": 1,
-  "entrypoint": "dev.enginehost.plugin.godot.GodotEnginePlugin",
   "origin": "https://github.com/droidtop/enginehost-godot-plugin",
-  "dexFiles": [
-    "runtime/godot.apk"
-  ],
-  "resourceApks": [
-    "runtime/godot.apk"
-  ],
-  "capabilities": [
-    {
-      "id": "godot-4.0-standard-v1",
-      "engineContext": "standard",
-      "runtimeVersion": "4.0.4",
-      "supportedSeries": [
-        "4.0"
-      ],
-      "runtimeComponents": {}
-    }
-  ],
-  "declaredOptions": [
-    {
-      "key": "platform",
-      "label": "Platform the game sees",
-      "type": "choice",
-      "description": "What the engine tells the game it is running on. A game exported for a desktop behaves as it does there when it sees that desktop; some games switch to a touch layout of their own when they see Android.",
-      "choices": [
-        {
-          "value": "export",
-          "label": "The platform it was exported for (default)"
-        },
-        {
-          "value": "android",
-          "label": "Android"
-        }
-      ]
-    }
-  ],
-  "source": {
-    "upstream": "https://github.com/godotengine/godot",
-    "revision": "4.0.4-stable"
+  "component": {
+    "engine": "godot",
+    "name": "spine-godot",
+    "version": "4.2",
+    "supportedSeries": ["4.2", "4.3", "4.4", "4.5", "4.6"]
   },
-  "licenses": [
-    "GPL-3.0 (the Enginehost integration and the combined bundle)", "MIT (Godot Engine)"
-  ]
+  "license": {
+    "name": "Spine Runtimes License",
+    "file": "LICENSE-spine-runtimes.txt"
+  },
+  "source": {
+    "upstream": "https://github.com/EsotericSoftware/spine-runtimes",
+    "branch": "4.2",
+    "revision": "e7dc1435fa4a0083ab431f1b28e083c14a1f5c68",
+    "components": {
+      "godot-cpp": {
+        "upstream": "https://github.com/godotengine/godot-cpp",
+        "series": {
+          "4.2": {
+            "tag": "godot-4.2.2-stable",
+            "revision": "98c143a48365f3f3bf5f99d6289a2cb25e6472d1"
+          },
+          "4.3": {
+            "tag": "godot-4.3-stable",
+            "revision": "fbbf9ec4efd8f1055d00edb8d926eef8ba4c2cce"
+          },
+          "4.4": {
+            "tag": "godot-4.4.1-stable",
+            "revision": "e4b7c25e721ce3435a029087e3917a30aa73f06b"
+          },
+          "4.5": {
+            "tag": "godot-4.5-stable",
+            "revision": "e83fd0904c13356ed1d4c3d09f8bb9132bdc6b77"
+          },
+          "4.6": {
+            "tag": "godot-4.5-stable",
+            "revision": "e83fd0904c13356ed1d4c3d09f8bb9132bdc6b77"
+          }
+        }
+      }
+    }
+  }
 }
