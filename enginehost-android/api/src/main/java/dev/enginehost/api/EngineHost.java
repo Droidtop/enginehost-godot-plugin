@@ -7,6 +7,13 @@ public interface EngineHost {
     /** The game's own save folder from the launching app, used as is; null otherwise (Enginehost's plugin API). */
     default File gameSaveDirectory() { return null; }
     default void reportSaveDirectory(File directory) {}
+    /**
+     * A runtime component the running game asked for ("spine-godot"): the verified, read-only root
+     * of its bundle once installed and approved, or null. Blocks while the person decides; never on
+     * the UI thread. On an older host the call throws an IncompatibleClassChangeError, as for
+     * {@link #restart}.
+     */
+    default File requestComponent(String name) { return null; }
     File cacheDirectory();
     EngineFileSystem fileSystem();
     void finish();
