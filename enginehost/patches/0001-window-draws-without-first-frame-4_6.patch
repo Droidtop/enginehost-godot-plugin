@@ -1,0 +1,35 @@
+diff --git a/platform/android/java/lib/src/main/java/org/godotengine/godot/gl/GLSurfaceView.java b/platform/android/java/lib/src/main/java/org/godotengine/godot/gl/GLSurfaceView.java
+index 6a4e9da..556624c 100644
+--- a/platform/android/java/lib/src/main/java/org/godotengine/godot/gl/GLSurfaceView.java
++++ b/platform/android/java/lib/src/main/java/org/godotengine/godot/gl/GLSurfaceView.java
+@@ -552,10 +552,29 @@ public class GLSurfaceView extends SurfaceView implements SurfaceHolder.Callback
+ 	@Override
+ 	public void surfaceRedrawNeededAsync(SurfaceHolder holder, Runnable finishDrawing) {
+ 		if (mGLThread != null) {
+-			mGLThread.requestRenderAndNotify(finishDrawing);
++			// Enginehost: the window counts as drawn only once finishDrawing
++			// runs, and Android gives no input focus to a window that has not
++			// drawn. The GL thread runs it after onDrawFrame, and Godot's first
++			// onDrawFrame boots the whole game: a 2.2 GB pack on slow storage
++			// kept it there for minutes, so Back found no focused window and
++			// Android answered with an ANR (Goodbye Eternity, Droidtop/tracker#604).
++			// If no frame has come within FINISH_DRAWING_WAIT_MS, the window
++			// is let draw (black) without it, once; a late frame then has
++			// nothing left to report.
++			final java.util.concurrent.atomic.AtomicBoolean finished = new java.util.concurrent.atomic.AtomicBoolean();
++			final Runnable once = () -> {
++				if (finished.compareAndSet(false, true) && finishDrawing != null) {
++					finishDrawing.run();
++				}
++			};
++			mGLThread.requestRenderAndNotify(once);
++			postDelayed(once, FINISH_DRAWING_WAIT_MS);
+ 		}
+ 	}
+ 
++	/** How long the window waits for the GL thread's first frame before it draws without it. */
++	private static final long FINISH_DRAWING_WAIT_MS = 1000;
++
+ 	/**
+ 	 * This method is part of the SurfaceHolder.Callback2 interface, and is
+ 	 * not normally called or subclassed by clients of GLSurfaceView.

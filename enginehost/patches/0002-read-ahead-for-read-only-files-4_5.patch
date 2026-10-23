@@ -1,0 +1,161 @@
+diff --git a/platform/android/java/lib/src/org/godotengine/godot/io/file/DataAccess.kt b/platform/android/java/lib/src/org/godotengine/godot/io/file/DataAccess.kt
+index daf6af3..541236d 100644
+--- a/platform/android/java/lib/src/org/godotengine/godot/io/file/DataAccess.kt
++++ b/platform/android/java/lib/src/org/godotengine/godot/io/file/DataAccess.kt
+@@ -57,6 +57,9 @@ internal abstract class DataAccess {
+ 	companion object {
+ 		private val TAG = DataAccess::class.java.simpleName
+ 
++		/** Enginehost: the read-ahead window of a file opened for reading only (FileChannelDataAccess). */
++		private const val READ_AHEAD = 64 * 1024
++
+ 		@Throws(java.lang.Exception::class, FileNotFoundException::class)
+ 		fun getInputStream(storageScope: StorageScope, context: Context, filePath: String): InputStream? {
+ 			return when(storageScope) {
+@@ -194,9 +197,32 @@ internal abstract class DataAccess {
+ 		seek(positionFromBeginning)
+ 	}
+ 
+-	abstract class FileChannelDataAccess(private val filePath: String) : DataAccess() {
++	abstract class FileChannelDataAccess(
++		private val filePath: String,
++		private val readAhead: Boolean = false,
++	) : DataAccess() {
+ 		internal abstract val fileChannel: FileChannel
+ 
++		// Enginehost: a file opened for reading only is read through a
++		// read-ahead window. Godot reads a pack a few bytes at a time (each
++		// get_32 and get_buffer is one call here), and each was one read from
++		// the file: parsing a 2.2 GB pack's directory and loading its first
++		// scene on BlueStacks' shared folder kept the GL thread in fileRead for
++		// minutes (Goodbye Eternity, Droidtop/tracker#604). Such a file keeps
++		// its position here too, so a seek or a tell costs no call either. A
++		// file opened for writing is read and positioned exactly as before.
++		private var window: ByteBuffer? = null
++		private var windowStart = 0L
++		private var windowEnd = 0L
++		private var at = -1L
++
++		private fun current(): Long {
++			if (at < 0) {
++				at = fileChannel.position()
++			}
++			return at
++		}
++
+ 		override fun close() {
+ 			try {
+ 				fileChannel.close()
+@@ -214,6 +240,10 @@ internal abstract class DataAccess {
+ 		}
+ 
+ 		override fun seek(position: Long) {
++			if (readAhead && position >= 0) {
++				at = position
++				return
++			}
+ 			try {
+ 				fileChannel.position(position)
+ 			} catch (e: Exception) {
+@@ -238,7 +268,7 @@ internal abstract class DataAccess {
+ 
+ 		override fun position(): Long {
+ 			return try {
+-				fileChannel.position()
++				if (readAhead) current() else fileChannel.position()
+ 			} catch (e: IOException) {
+ 				Log.w(
+ 					TAG,
+@@ -257,6 +287,9 @@ internal abstract class DataAccess {
+ 		}
+ 
+ 		override fun read(buffer: ByteBuffer): Int {
++			if (readAhead) {
++				return readAhead(buffer)
++			}
+ 			return try {
+ 				val readBytes = fileChannel.read(buffer)
+ 				if (readBytes == -1) {
+@@ -271,6 +304,55 @@ internal abstract class DataAccess {
+ 			}
+ 		}
+ 
++		/** [read] through the window; the same answers as a plain read, from fewer reads of the file. */
++		private fun readAhead(buffer: ByteBuffer): Int {
++			return try {
++				var position = current()
++				if (buffer.remaining() >= READ_AHEAD) {
++					// Large enough to read straight into Godot's own buffer.
++					val readBytes = fileChannel.read(buffer, position)
++					if (readBytes == -1) {
++						endOfFile = true
++						return 0
++					}
++					at = position + readBytes
++					return readBytes
++				}
++				var copied = 0
++				while (buffer.hasRemaining()) {
++					if (position < windowStart || position >= windowEnd) {
++						val fresh = window ?: ByteBuffer.allocate(READ_AHEAD).also { window = it }
++						fresh.clear()
++						val readBytes = fileChannel.read(fresh, position)
++						if (readBytes <= 0) {
++							windowStart = 0L
++							windowEnd = 0L
++							break
++						}
++						windowStart = position
++						windowEnd = position + readBytes
++					}
++					val from = window!!.duplicate()
++					val offset = (position - windowStart).toInt()
++					val count = minOf(buffer.remaining().toLong(), windowEnd - position).toInt()
++					from.limit(offset + count)
++					from.position(offset)
++					buffer.put(from)
++					position += count
++					copied += count
++				}
++				at = position
++				// As a plain read: one that finds nothing left is the end of the file.
++				if (copied == 0) {
++					endOfFile = true
++				}
++				copied
++			} catch (e: IOException) {
++				Log.w(TAG, "Exception while reading from file $filePath.", e)
++				0
++			}
++		}
++
+ 		override fun write(buffer: ByteBuffer): Boolean {
+ 			try {
+ 				val writtenBytes = fileChannel.write(buffer)
+diff --git a/platform/android/java/lib/src/org/godotengine/godot/io/file/FileData.kt b/platform/android/java/lib/src/org/godotengine/godot/io/file/FileData.kt
+index 42e59ca..d0a79e8 100644
+--- a/platform/android/java/lib/src/org/godotengine/godot/io/file/FileData.kt
++++ b/platform/android/java/lib/src/org/godotengine/godot/io/file/FileData.kt
+@@ -44,7 +44,8 @@ import java.util.concurrent.TimeUnit
+ /**
+  * Implementation of [DataAccess] which handles regular (not scoped) file access and interactions.
+  */
+-internal class FileData(filePath: String, accessFlag: FileAccessFlags) : DataAccess.FileChannelDataAccess(filePath) {
++internal class FileData(filePath: String, accessFlag: FileAccessFlags) :
++	DataAccess.FileChannelDataAccess(filePath, readAhead = accessFlag == FileAccessFlags.READ) {
+ 
+ 	companion object {
+ 		private val TAG = FileData::class.java.simpleName
+diff --git a/platform/android/java/lib/src/org/godotengine/godot/io/file/MediaStoreData.kt b/platform/android/java/lib/src/org/godotengine/godot/io/file/MediaStoreData.kt
+index e78b294..cb93be0 100644
+--- a/platform/android/java/lib/src/org/godotengine/godot/io/file/MediaStoreData.kt
++++ b/platform/android/java/lib/src/org/godotengine/godot/io/file/MediaStoreData.kt
+@@ -54,7 +54,7 @@ import java.nio.channels.FileChannel
+  */
+ @RequiresApi(Build.VERSION_CODES.Q)
+ internal class MediaStoreData(context: Context, filePath: String, accessFlag: FileAccessFlags) :
+-	DataAccess.FileChannelDataAccess(filePath) {
++	DataAccess.FileChannelDataAccess(filePath, readAhead = accessFlag == FileAccessFlags.READ) {
+ 
+ 	private data class DataItem(
+ 		val id: Long,
