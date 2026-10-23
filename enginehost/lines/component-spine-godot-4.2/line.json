@@ -1,9 +1,5 @@
 {
-  "upstream": {
-    "repo": "EsotericSoftware/spine-runtimes",
-    "ref": "4.2",
-    "commit": "e7dc1435fa4a0083ab431f1b28e083c14a1f5c68"
-  },
+  "upstream": null,
   "version": "4.2",
   "sharedPatches": false
 }

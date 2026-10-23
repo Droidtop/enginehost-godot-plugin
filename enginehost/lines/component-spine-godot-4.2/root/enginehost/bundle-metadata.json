@@ -17,17 +17,32 @@
   },
   "source": {
     "upstream": "https://github.com/EsotericSoftware/spine-runtimes",
-    "revision": "e7dc1435fa4a0083ab431f1b28e083c14a1f5c68",
     "branch": "4.2",
+    "revision": "e7dc1435fa4a0083ab431f1b28e083c14a1f5c68",
     "components": {
       "godot-cpp": {
         "upstream": "https://github.com/godotengine/godot-cpp",
         "series": {
-          "4.2": "godot-4.2.2-stable",
-          "4.3": "godot-4.3-stable",
-          "4.4": "godot-4.4.1-stable",
-          "4.5": "godot-4.5-stable",
-          "4.6": "godot-4.5-stable"
+          "4.2": {
+            "tag": "godot-4.2.2-stable",
+            "revision": "98c143a48365f3f3bf5f99d6289a2cb25e6472d1"
+          },
+          "4.3": {
+            "tag": "godot-4.3-stable",
+            "revision": "fbbf9ec4efd8f1055d00edb8d926eef8ba4c2cce"
+          },
+          "4.4": {
+            "tag": "godot-4.4.1-stable",
+            "revision": "e4b7c25e721ce3435a029087e3917a30aa73f06b"
+          },
+          "4.5": {
+            "tag": "godot-4.5-stable",
+            "revision": "e83fd0904c13356ed1d4c3d09f8bb9132bdc6b77"
+          },
+          "4.6": {
+            "tag": "godot-4.5-stable",
+            "revision": "e83fd0904c13356ed1d4c3d09f8bb9132bdc6b77"
+          }
         }
       }
     }

@@ -5,8 +5,9 @@ name: Build Enginehost bundle
 # GDExtension flavor of spine-godot at the pinned 4.2 branch, one build per
 # Godot series the component supports, for arm64-v8a and x86_64, signed and
 # published as a `kind: component` bundle under the Spine Runtimes License.
-# This line's tree is spine-runtimes itself (enginehost/line.json), so the
-# checkout is the source.
+# The line has no upstream tree (enginehost/line.json): every source is
+# fetched at the commit enginehost/bundle-metadata.json's `source` pins, and
+# that record is the only place the pins are written.
 
 on:
   push:
@@ -40,22 +41,46 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  pins:
+    # One build per supported series, each against godot-cpp at that
+    # series' release tag, so it is compiled against exactly the API that
+    # series exposes. godot-cpp has no 4.6 tag; the 4.6 build uses the 4.5
+    # API, which a 4.6 engine loads.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      spine: ${{ steps.read.outputs.spine }}
+      series: ${{ steps.read.outputs.series }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Read the pins
+        id: read
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, re, sys
+          metadata = json.load(open('enginehost/bundle-metadata.json'))
+          source = metadata['source']
+          cpp = source['components']['godot-cpp']['series']
+          if sorted(cpp) != sorted(metadata['component']['supportedSeries']):
+              sys.exit(f"godot-cpp pins {sorted(cpp)} are not the supported series {metadata['component']['supportedSeries']}")
+          for revision in [source['revision']] + [pin['revision'] for pin in cpp.values()]:
+              if not re.fullmatch(r'[0-9a-f]{40}', revision):
+                  sys.exit(f'{revision!r} is not a commit; a pin is a commit, never a branch or tag')
+          print('spine=' + source['revision'])
+          print('series=' + json.dumps([{'series': s, 'cpp': pin['revision']} for s, pin in sorted(cpp.items())]))
+          PY
+
   extension:
-    # godot-cpp at each series' release tag, so every build is compiled
-    # against exactly the API that series exposes. godot-cpp has no 4.6 tag;
-    # the 4.6 build uses the 4.5 API, which GDExtension guarantees 4.6 loads.
     name: spine-godot for Godot ${{ matrix.godot.series }} (${{ matrix.abi.abi }})
+    needs: pins
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        godot:
-          - { series: "4.2", cpp: 98c143a48365f3f3bf5f99d6289a2cb25e6472d1 } # godot-4.2.2-stable
-          - { series: "4.3", cpp: fbbf9ec4efd8f1055d00edb8d926eef8ba4c2cce } # godot-4.3-stable
-          - { series: "4.4", cpp: e4b7c25e721ce3435a029087e3917a30aa73f06b } # godot-4.4.1-stable
-          - { series: "4.5", cpp: e83fd0904c13356ed1d4c3d09f8bb9132bdc6b77 } # godot-4.5-stable
-          - { series: "4.6", cpp: e83fd0904c13356ed1d4c3d09f8bb9132bdc6b77 } # godot-4.5-stable
+        godot: ${{ fromJSON(needs.pins.outputs.series) }}
         abi:
           - { arch: arm64, abi: arm64-v8a }
           - { arch: x86_64, abi: x86_64 }
@@ -63,6 +88,8 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+          repository: EsotericSoftware/spine-runtimes
+          ref: ${{ needs.pins.outputs.spine }}
           path: src
 
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -119,6 +146,9 @@ jobs:
           OUT=out/lib/${{ matrix.abi.abi }}/godot-${{ matrix.godot.series }}
           mkdir -p "$OUT"
           cp "$LIB" "$OUT/libspine_godot.so"
+          # Every build carries the licence of the source it was built from;
+          # they are one file, so the merged artifact holds it once.
+          cp src/LICENSE out/LICENSE-spine-runtimes.txt
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -142,16 +172,6 @@ jobs:
           pattern: spine-godot-*
           path: build/unsigned/payload
           merge-multiple: true
-
-      - name: The licence is upstream's
-        # LICENSE in this tree is the line's copy of spine-runtimes' own; it
-        # must be the very file at the pinned upstream commit. A blob-less
-        # fetch of that one commit names the blob without downloading it.
-        run: |
-          set -euo pipefail
-          UPSTREAM=$(python3 -c "import json;print(json.load(open('enginehost/line.json'))['upstream'])")
-          git fetch -q --depth=1 --filter=blob:none https://github.com/EsotericSoftware/spine-runtimes "$UPSTREAM"
-          test "$(git rev-parse "$UPSTREAM:LICENSE")" = "$(git hash-object LICENSE)"
 
       - name: Pack the unsigned bundle inputs
         id: pack
@@ -187,7 +207,7 @@ jobs:
           if staged != expected:
               sys.exit(f'builds for series the manifest does not declare: {sorted(set(staged) - set(expected))}')
           PY
-          cp LICENSE "build/unsigned/payload/$(python3 -c "import json;print(json.load(open('enginehost/bundle-metadata.json'))['license']['file'])")"
+          test -f "build/unsigned/payload/$(python3 -c "import json;print(json.load(open('enginehost/bundle-metadata.json'))['license']['file'])")"
           BUNDLE_ID=$(python3 -c "import json;print(json.load(open('enginehost/bundle-metadata.json'))['bundleId'])")
           echo "bundle-id=$BUNDLE_ID" >> "$GITHUB_OUTPUT"
           cp enginehost/bundle-metadata.json build/unsigned/bundle-metadata.json
