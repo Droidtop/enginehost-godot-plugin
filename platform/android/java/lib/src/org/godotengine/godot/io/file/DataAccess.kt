@@ -57,6 +57,9 @@ internal abstract class DataAccess {
 	companion object {
 		private val TAG = DataAccess::class.java.simpleName
 
+		/** Enginehost: the read-ahead window of a file opened for reading only (FileChannelDataAccess). */
+		private const val READ_AHEAD = 64 * 1024
+
 		@Throws(java.lang.Exception::class, FileNotFoundException::class)
 		fun getInputStream(storageScope: StorageScope, context: Context, filePath: String): InputStream? {
 			return when(storageScope) {
@@ -194,8 +197,31 @@ internal abstract class DataAccess {
 		seek(positionFromBeginning)
 	}
 
-	abstract class FileChannelDataAccess(private val filePath: String) : DataAccess() {
+	abstract class FileChannelDataAccess(
+		private val filePath: String,
+		private val readAhead: Boolean = false,
+	) : DataAccess() {
 		internal abstract val fileChannel: FileChannel
+
+		// Enginehost: a file opened for reading only is read through a
+		// read-ahead window. Godot reads a pack a few bytes at a time (each
+		// get_32 and get_buffer is one call here), and each was one read from
+		// the file: parsing a 2.2 GB pack's directory and loading its first
+		// scene on BlueStacks' shared folder kept the GL thread in fileRead for
+		// minutes (Goodbye Eternity, Droidtop/tracker#604). Such a file keeps
+		// its position here too, so a seek or a tell costs no call either. A
+		// file opened for writing is read and positioned exactly as before.
+		private var window: ByteBuffer? = null
+		private var windowStart = 0L
+		private var windowEnd = 0L
+		private var at = -1L
+
+		private fun current(): Long {
+			if (at < 0) {
+				at = fileChannel.position()
+			}
+			return at
+		}
 
 		override fun close() {
 			try {
@@ -214,6 +240,10 @@ internal abstract class DataAccess {
 		}
 
 		override fun seek(position: Long) {
+			if (readAhead && position >= 0) {
+				at = position
+				return
+			}
 			try {
 				fileChannel.position(position)
 			} catch (e: Exception) {
@@ -238,7 +268,7 @@ internal abstract class DataAccess {
 
 		override fun position(): Long {
 			return try {
-				fileChannel.position()
+				if (readAhead) current() else fileChannel.position()
 			} catch (e: IOException) {
 				Log.w(
 					TAG,
@@ -257,6 +287,9 @@ internal abstract class DataAccess {
 		}
 
 		override fun read(buffer: ByteBuffer): Int {
+			if (readAhead) {
+				return readAhead(buffer)
+			}
 			return try {
 				val readBytes = fileChannel.read(buffer)
 				if (readBytes == -1) {
@@ -265,6 +298,55 @@ internal abstract class DataAccess {
 				} else {
 					readBytes
 				}
+			} catch (e: IOException) {
+				Log.w(TAG, "Exception while reading from file $filePath.", e)
+				0
+			}
+		}
+
+		/** [read] through the window; the same answers as a plain read, from fewer reads of the file. */
+		private fun readAhead(buffer: ByteBuffer): Int {
+			return try {
+				var position = current()
+				if (buffer.remaining() >= READ_AHEAD) {
+					// Large enough to read straight into Godot's own buffer.
+					val readBytes = fileChannel.read(buffer, position)
+					if (readBytes == -1) {
+						endOfFile = true
+						return 0
+					}
+					at = position + readBytes
+					return readBytes
+				}
+				var copied = 0
+				while (buffer.hasRemaining()) {
+					if (position < windowStart || position >= windowEnd) {
+						val fresh = window ?: ByteBuffer.allocate(READ_AHEAD).also { window = it }
+						fresh.clear()
+						val readBytes = fileChannel.read(fresh, position)
+						if (readBytes <= 0) {
+							windowStart = 0L
+							windowEnd = 0L
+							break
+						}
+						windowStart = position
+						windowEnd = position + readBytes
+					}
+					val from = window!!.duplicate()
+					val offset = (position - windowStart).toInt()
+					val count = minOf(buffer.remaining().toLong(), windowEnd - position).toInt()
+					from.limit(offset + count)
+					from.position(offset)
+					buffer.put(from)
+					position += count
+					copied += count
+				}
+				at = position
+				// As a plain read: one that finds nothing left is the end of the file.
+				if (copied == 0) {
+					endOfFile = true
+				}
+				copied
 			} catch (e: IOException) {
 				Log.w(TAG, "Exception while reading from file $filePath.", e)
 				0
