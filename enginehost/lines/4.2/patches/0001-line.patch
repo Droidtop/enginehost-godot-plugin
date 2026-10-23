@@ -77,7 +77,7 @@ index 50075ed3f5e91d02fe17e6facc6cb9b23684a4d8..e1dc68e55d1de1d5c795166daac23e5d
  	const char **cmdline = nullptr;
  	jstring *j_cmdline = nullptr;
 diff --git a/platform/android/os_android.cpp b/platform/android/os_android.cpp
-index 92dc5f909f63fab8a48e0389ac35c14c97c9600c..587000540673024814c101d8fd842721d11405f3 100644
+index 92dc5f909f63fab8a48e0389ac35c14c97c9600c..e826d1c1d2d2d41ef1bf25ece657e7b3579f18fd 100644
 --- a/platform/android/os_android.cpp
 +++ b/platform/android/os_android.cpp
 @@ -30,6 +30,8 @@
@@ -159,7 +159,7 @@ index 92dc5f909f63fab8a48e0389ac35c14c97c9600c..587000540673024814c101d8fd842721
  	return "Android";
  }
  
-@@ -606,6 +645,47 @@ String OS_Android::get_user_data_dir() const {
+@@ -606,6 +645,51 @@ String OS_Android::get_user_data_dir() const {
  		return data_dir_cache;
  	}
  
@@ -179,6 +179,8 @@ index 92dc5f909f63fab8a48e0389ac35c14c97c9600c..587000540673024814c101d8fd842721
 +	if (enginehost_game_save_path && enginehost_game_save_path[0] != 0) {
 +		data_dir_cache = String::utf8(enginehost_game_save_path);
 +		DirAccess::make_dir_recursive_absolute(data_dir_cache);
++		// Where user:// is, for the wrapper to tell Enginehost (EngineHost.reportSaveDirectory).
++		setenv("ENGINEHOST_USER_DATA_DIR", data_dir_cache.utf8().get_data(), 1);
 +		return data_dir_cache;
 +	}
 +	if (enginehost_save_path && enginehost_save_path[0] != 0) {
@@ -201,13 +203,15 @@ index 92dc5f909f63fab8a48e0389ac35c14c97c9600c..587000540673024814c101d8fd842721
 +		}
 +		DirAccess::make_dir_recursive_absolute(data_dir);
 +		data_dir_cache = data_dir;
++		// Where user:// is, for the wrapper to tell Enginehost (EngineHost.reportSaveDirectory).
++		setenv("ENGINEHOST_USER_DATA_DIR", data_dir_cache.utf8().get_data(), 1);
 +		return data_dir_cache;
 +	}
 +
  	String data_dir = godot_io_java->get_user_data_dir();
  	if (!data_dir.is_empty()) {
  		data_dir_cache = _remove_symlink(data_dir);
-@@ -730,6 +810,29 @@ void OS_Android::benchmark_dump() {
+@@ -730,6 +814,29 @@ void OS_Android::benchmark_dump() {
  }
  
  bool OS_Android::_check_internal_feature_support(const String &p_feature) {
