@@ -171,6 +171,27 @@ range carries. They are applied when a line is composed, before the line's own p
   `DataAccess.kt` differ, so each needs its own port.
 
 
+## Runtime components
+
+A game can need more than the stock engine: Spine animations, or another GDExtension its
+desktop build carried. Enginehost matches the game's `runtimeRequirements` and tells the plugin
+which components the launch loads (`EnginePluginSession.runtimeComponents()`).
+`GodotComponents` finds each one's GDExtension config, and the fragment registers them as a
+host `GodotPlugin`. Godot reads its `getPluginGDExtensionLibrariesPaths()` in
+`OS_Android::load_platform_gdextensions` during core registration, before any game script
+parses. The game's own files are never edited. A component is found in one of three places:
+
+- a separately installed component bundle (`runtimeComponentDirectory(name)`), at
+  `godot-<series>/<name>.gdextension` for the engine's own series. A capability that loads
+  these says `loadsComponents`;
+- this bundle's payload, at `components/<name>/<version>/<name>.gdextension`;
+- the engine library, compiled in (lines 4.2 to 4.6 have spine-godot built in until the
+  component replaces it): nothing to load.
+
+`4.5-components` (`dev.enginehost.godot.v45.v2`) is the stock 4.5.1 engine with no module
+compiled in, whose capability loads spine-godot as a separate component. It is the line the
+compiled-in Spine is compared against before it is retired (Droidtop/tracker#291).
+
 ## The spine-godot component line
 
 `enginehost/lines/component-spine-godot-4.2` is not a Godot line. It builds the spine-godot
