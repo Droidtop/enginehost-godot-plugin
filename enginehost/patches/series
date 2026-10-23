@@ -3,5 +3,3 @@
 # 4.6 moved the Android library's sources under src/main/java, hence the second copy.
 <4.6 0001-window-draws-without-first-frame.patch
 >=4.6 0001-window-draws-without-first-frame-4_6.patch
-<4.6 0002-native-filesystem-reads.patch
->=4.6 0002-native-filesystem-reads-4_6.patch

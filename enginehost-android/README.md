@@ -171,14 +171,15 @@ range carries. They are applied when a line is composed, before the line's own p
   and Android answered with "isn't responding" (Goodbye Eternity, Droidtop/tracker#604). If
   no frame has come within a second, the window now draws (black) without it, once. The
   game keeps loading, and Back reaches Enginehost.
-- **Absolute paths are read natively** (every line). Upstream reads any absolute path, the
+- **Absolute paths are read natively** (every line, in its own patch beside the API 30 rule
+  above `initialize_core`'s file-access defaults). Upstream reads any absolute path, the
   game's pack above all, through Java's FileAccessHandler: one JNI call and one read per
   `get_8`. Goodbye Eternity's start made 8 to 13 thousand one-byte reads a second on BlueStacks,
   all of them crossing JNI, and stayed black for minutes (Droidtop/tracker#604, ANR trace in
-  `FileAccessHandler.fileRead`). Under Enginehost (`ENGINEHOST_SAVE_PATH` set) such paths use
+  `FileAccessHandler.fileRead`). Such paths now use
   Godot's own `FileAccessUnix`, buffered by stdio, as `user://` and `res://` already do.
   Enginehost holds all-files access and hands the engine real paths, so the Java handler's
-  `content://` support is never needed there. Outside Enginehost nothing changes. This replaces
+  `content://` support is never needed there. This replaces
   4.5's Java-side read-ahead, which could not help: each read still crossed JNI.
 
 
