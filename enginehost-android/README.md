@@ -146,6 +146,13 @@ puts the project's own directory inside it under the desktop's own rule
 (`OS_Unix::get_user_data_dir`): `godot/app_userdata/<project name>`, or the
 project's custom user directory. Outside Enginehost nothing changes.
 
+Only the engine knows that name, so it says it: `get_user_data_dir` exports the
+folder it resolved as `ENGINEHOST_USER_DATA_DIR` (lines 4.2 and later), and the
+wrapper hands it to Enginehost (`EngineHost.reportSaveDirectory`) after the engine
+starts and again when the game is left. Enginehost then names that folder as the
+game's saves (its `GAME_ENDED` broadcast, Droidtop/tracker#547) instead of the
+whole save folder.
+
 Godot is copyright its contributors and licensed under MIT. The Maven artifact
 retains upstream notices; see <https://godotengine.org/license/> and the
 [official Android-library documentation](https://docs.godotengine.org/en/stable/tutorials/platform/android/android_library.html).
@@ -170,3 +177,40 @@ range carries. They are applied when a line is composed, before the line's own p
   opened for writing are read and positioned exactly as before. The other versions'
   `DataAccess.kt` differ, so each needs its own port.
 
+
+## Runtime components
+
+A game can need more than the stock engine: Spine animations, or another GDExtension its
+desktop build carried. Enginehost matches the game's `runtimeRequirements` and tells the plugin
+which components the launch loads (`EnginePluginSession.runtimeComponents()`).
+`GodotComponents` finds each one's GDExtension config, and the fragment registers them as a
+host `GodotPlugin`. Godot reads its `getPluginGDExtensionLibrariesPaths()` in
+`OS_Android::load_platform_gdextensions` during core registration, before any game script
+parses. The game's own files are never edited. A component is found in one of three places:
+
+- a separately installed component bundle (`runtimeComponentDirectory(name)`), at
+  `godot-<series>/<name>.gdextension` for the engine's own series. A capability that loads
+  these says `loadsComponents`;
+- this bundle's payload, at `components/<name>/<version>/<name>.gdextension`;
+- the engine library, compiled in (lines 4.2 to 4.6 have spine-godot built in until the
+  component replaces it): nothing to load.
+
+`4.5-components` (`dev.enginehost.godot.v45.v2`) is the stock 4.5.1 engine with no module
+compiled in, whose capability loads spine-godot as a separate component. It is the line the
+compiled-in Spine is compared against before it is retired (Droidtop/tracker#291).
+
+## The spine-godot component line
+
+`enginehost/lines/component-spine-godot-4.2` is not a Godot line. It builds the spine-godot
+GDExtension as a separately installed component bundle (`kind: component`,
+`dev.enginehost.godot.component.spine-godot.v42`, under the Spine Runtimes License; Enginehost
+docs/engine-bundle-format.md, "Component bundles"). It carries one build per Godot series from
+4.2 to 4.6, each against godot-cpp at that series' release tag (4.6 uses the 4.5 API, as
+godot-cpp has no 4.6 tag), for arm64-v8a and x86_64: `godot-<series>/spine-godot.gdextension`
+and `lib/<abi>/godot-<series>/libspine_godot.so`, with spine-runtimes' own `LICENSE` as
+`LICENSE-spine-runtimes.txt`.
+
+Its `line.json` declares no upstream (`"upstream": null`, `"sharedPatches": false`): the line
+is plugin-core alone, and its build fetches spine-runtimes and godot-cpp at the commits the
+line's `bundle-metadata.json` pins under `source`, the one place those pins are written.
+spine-runtimes' history is far too large to carry in this repository as a line's upstream.
