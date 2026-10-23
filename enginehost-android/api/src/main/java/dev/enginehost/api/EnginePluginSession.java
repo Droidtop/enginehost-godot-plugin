@@ -16,4 +16,5 @@ public final class EnginePluginSession {
     public String optionsJson() { return null; }
     public Map<String, String> runtimeRequirements() { return null; }
     public Map<String, String> runtimeComponents() { return null; }
+    public File runtimeComponentDirectory(String name) { return null; }
 }

@@ -29,8 +29,8 @@ public final class GodotEnginePlugin implements EnginePlugin {
         requireRunnableHere(pack, session.runtimeVersion());
         supplyPackKey(root, pack);
         presentExportPlatform(root, pack, session.optionsJson());
-        // Before the engine exists, so a bundle missing a component it
-        // declares fails as a startup error instead of a game without it.
+        // Before the engine exists, so a component that cannot be found fails
+        // as a startup error instead of a game without it.
         java.util.Set<String> components = GodotComponents.configs(session);
         // Where user:// goes: the save folder the person chose in Enginehost.
         // The engine reads this in OS_Android::get_user_data_dir and puts the

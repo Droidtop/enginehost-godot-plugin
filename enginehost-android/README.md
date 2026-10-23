@@ -79,24 +79,6 @@ real game:
 
 It reports a recovered key as a digest of itself, never as the key.
 
-## Runtime components
-
-A game can need more than the stock engine: Spine animations, or any other
-GDExtension or engine module its desktop build carried. The engine stays
-stock; a component is signed bundle payload under
-`components/<name>/<version>/` (its libraries in `lib/arm64-v8a/` and
-`lib/x86_64/`, its licence, and `<name>.gdextension` naming the libraries
-relative to itself), and the bundle declares one capability per component
-combination it serves (`runtimeComponents`). Enginehost selects the capability
-against the game's `runtimeRequirements` and hands the plugin the selected
-capability's components (`EnginePluginSession.runtimeComponents()`).
-`GodotComponents` turns them into config paths and the fragment registers them
-as a host `GodotPlugin`, whose `getPluginGDExtensionLibrariesPaths()` Godot
-reads in `OS_Android::load_platform_gdextensions` during core registration,
-before any game script parses. The game's own files are never edited. How to
-add a component: Enginehost docs/engine-bundle-format.md, "Adding a runtime
-component".
-
 ## All Files Access
 
 Godot's Android file layer (`StorageScope`) refuses any path outside the app's
@@ -169,3 +151,59 @@ retains upstream notices; see <https://godotengine.org/license/> and the
 [official Android-library documentation](https://docs.godotengine.org/en/stable/tutorials/platform/android/android_library.html).
 
 No game files are copied. Builds run only in CI.
+
+## Engine patches
+
+`enginehost/patches/series` lists the changes to Godot itself that every line in a version
+range carries. They are applied when a line is composed, before the line's own patch.
+
+- **The window draws without Godot's first frame** (every line). Android gives input focus
+  only to a window that has drawn. `GLSurfaceView` reports the window drawn only after the
+  GL thread finishes a frame, and Godot's first frame boots the whole game. A large pack on
+  slow storage kept that first frame going for minutes. Back then found no focused window,
+  and Android answered with "isn't responding" (Goodbye Eternity, Droidtop/tracker#604). If
+  no frame has come within a second, the window now draws (black) without it, once. The
+  game keeps loading, and Back reaches Enginehost.
+- **Read-ahead for files opened for reading** (4.5 so far). Godot reads a pack a few bytes
+  at a time, and each read was one read from the file through JNI. A 64 KiB window now
+  serves them, and the position is kept in memory, so a seek or a tell costs no call. Files
+  opened for writing are read and positioned exactly as before. The other versions'
+  `DataAccess.kt` differ, so each needs its own port.
+
+
+## Runtime components
+
+A game can need more than the stock engine: Spine animations, or another GDExtension its
+desktop build carried. Enginehost matches the game's `runtimeRequirements` and tells the plugin
+which components the launch loads (`EnginePluginSession.runtimeComponents()`).
+`GodotComponents` finds each one's GDExtension config, and the fragment registers them as a
+host `GodotPlugin`. Godot reads its `getPluginGDExtensionLibrariesPaths()` in
+`OS_Android::load_platform_gdextensions` during core registration, before any game script
+parses. The game's own files are never edited. A component is found in one of three places:
+
+- a separately installed component bundle (`runtimeComponentDirectory(name)`), at
+  `godot-<series>/<name>.gdextension` for the engine's own series. A capability that loads
+  these says `loadsComponents`;
+- this bundle's payload, at `components/<name>/<version>/<name>.gdextension`;
+- the engine library, compiled in (lines 4.2 to 4.6 have spine-godot built in until the
+  component replaces it): nothing to load.
+
+`4.5-components` (`dev.enginehost.godot.v45.v2`) is the stock 4.5.1 engine with no module
+compiled in, whose capability loads spine-godot as a separate component. It is the line the
+compiled-in Spine is compared against before it is retired (Droidtop/tracker#291).
+
+## The spine-godot component line
+
+`enginehost/lines/component-spine-godot-4.2` is not a Godot line. It builds the spine-godot
+GDExtension as a separately installed component bundle (`kind: component`,
+`dev.enginehost.godot.component.spine-godot.v42`, under the Spine Runtimes License; Enginehost
+docs/engine-bundle-format.md, "Component bundles"). It carries one build per Godot series from
+4.2 to 4.6, each against godot-cpp at that series' release tag (4.6 uses the 4.5 API, as
+godot-cpp has no 4.6 tag), for arm64-v8a and x86_64: `godot-<series>/spine-godot.gdextension`
+and `lib/<abi>/godot-<series>/libspine_godot.so`, with spine-runtimes' own `LICENSE` as
+`LICENSE-spine-runtimes.txt`.
+
+Its `line.json` declares no upstream (`"upstream": null`, `"sharedPatches": false`): the line
+is plugin-core alone, and its build fetches spine-runtimes and godot-cpp at the commits the
+line's `bundle-metadata.json` pins under `source`, the one place those pins are written.
+spine-runtimes' history is far too large to carry in this repository as a line's upstream.
