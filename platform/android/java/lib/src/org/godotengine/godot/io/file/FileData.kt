@@ -44,8 +44,7 @@ import java.util.concurrent.TimeUnit
 /**
  * Implementation of [DataAccess] which handles regular (not scoped) file access and interactions.
  */
-internal class FileData(filePath: String, accessFlag: FileAccessFlags) :
-	DataAccess.FileChannelDataAccess(filePath, readAhead = accessFlag == FileAccessFlags.READ) {
+internal class FileData(filePath: String, accessFlag: FileAccessFlags) : DataAccess.FileChannelDataAccess(filePath) {
 
 	companion object {
 		private val TAG = FileData::class.java.simpleName
