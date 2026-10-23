@@ -127,7 +127,7 @@ index c7a549f1a851faae3d6869a8a3f87ab1d263864c..9432e88098333cb674d55f4bb885027c
  	const char **cmdline = nullptr;
  	jstring *j_cmdline = nullptr;
 diff --git a/platform/android/os_android.cpp b/platform/android/os_android.cpp
-index 2f495b1539c094740eec36ca99b38f8cef58cae7..05536dee74ae813d3f0a25a0cd58717b78ac43c6 100644
+index 2f495b1539c094740eec36ca99b38f8cef58cae7..abdbb358f9cc0570000a1a4e4be64c6bae74fec3 100644
 --- a/platform/android/os_android.cpp
 +++ b/platform/android/os_android.cpp
 @@ -30,6 +30,8 @@
@@ -147,7 +147,7 @@ index 2f495b1539c094740eec36ca99b38f8cef58cae7..05536dee74ae813d3f0a25a0cd58717b
  #include <dlfcn.h>
  #include <sys/system_properties.h>
  
-@@ -100,7 +103,21 @@ void OS_Android::initialize_core() {
+@@ -100,7 +103,22 @@ void OS_Android::initialize_core() {
  	}
  #endif
  	FileAccess::make_default<FileAccessUnix>(FileAccess::ACCESS_USERDATA);
@@ -162,15 +162,16 @@ index 2f495b1539c094740eec36ca99b38f8cef58cae7..05536dee74ae813d3f0a25a0cd58717b
 +	// rig, Android 9). Natively the kernel's own permissions decide, as they
 +	// do for the Java handler's own reads of the paths it does accept.
 +	const bool unscoped_storage = android_get_device_api_level() < __ANDROID_API_R__;
-+	if (unscoped_storage) {
-+		FileAccess::make_default<FileAccessUnix>(FileAccess::ACCESS_FILESYSTEM);
-+	} else {
-+		FileAccess::make_default<FileAccessFilesystemJAndroid>(FileAccess::ACCESS_FILESYSTEM);
-+	}
++	// Enginehost, on every API level: the Java handler also costs one JNI call and one read
++	// per get_8, and a large pack's load made millions of them (Goodbye Eternity: 8 to 13
++	// thousand one-byte reads a second on BlueStacks, black for minutes; Droidtop/tracker#604).
++	// This build runs only under Enginehost, which holds all-files access and hands the engine
++	// real paths, so the Java handler's content:// support is never needed: stdio, buffered.
++	FileAccess::make_default<FileAccessUnix>(FileAccess::ACCESS_FILESYSTEM);
  
  #ifdef TOOLS_ENABLED
  	DirAccess::make_default<DirAccessUnix>(DirAccess::ACCESS_RESOURCES);
-@@ -112,7 +129,11 @@ void OS_Android::initialize_core() {
+@@ -112,7 +130,11 @@ void OS_Android::initialize_core() {
  	}
  #endif
  	DirAccess::make_default<DirAccessUnix>(DirAccess::ACCESS_USERDATA);
@@ -183,7 +184,7 @@ index 2f495b1539c094740eec36ca99b38f8cef58cae7..05536dee74ae813d3f0a25a0cd58717b
  
  	NetSocketAndroid::make_default();
  }
-@@ -250,7 +271,25 @@ Error OS_Android::open_dynamic_library(const String &p_path, void *&p_library_ha
+@@ -250,7 +272,25 @@ Error OS_Android::open_dynamic_library(const String &p_path, void *&p_library_ha
  	return OK;
  }
  
@@ -209,7 +210,7 @@ index 2f495b1539c094740eec36ca99b38f8cef58cae7..05536dee74ae813d3f0a25a0cd58717b
  	return "Android";
  }
  
-@@ -695,6 +734,35 @@ String OS_Android::get_user_data_dir(const String &p_user_dir) const {
+@@ -695,6 +735,35 @@ String OS_Android::get_user_data_dir(const String &p_user_dir) const {
  		return data_dir_cache;
  	}
  
@@ -245,7 +246,7 @@ index 2f495b1539c094740eec36ca99b38f8cef58cae7..05536dee74ae813d3f0a25a0cd58717b
  	String data_dir = godot_io_java->get_user_data_dir(p_user_dir);
  	if (!data_dir.is_empty()) {
  		data_dir_cache = _remove_symlink(data_dir);
-@@ -842,6 +910,29 @@ Error OS_Android::verify_apk(const String &p_apk_path) {
+@@ -842,6 +911,29 @@ Error OS_Android::verify_apk(const String &p_apk_path) {
  #endif
  
  bool OS_Android::_check_internal_feature_support(const String &p_feature) {
