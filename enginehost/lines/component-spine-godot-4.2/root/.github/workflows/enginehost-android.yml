@@ -106,14 +106,17 @@ jobs:
           scons --version
 
       - name: Install the NDK godot-cpp builds with
-        # godot-cpp names the exact NDK it expects (tools/android.py,
-        # ndk_version) and looks for it under $ANDROID_HOME/ndk/.
+        # godot-cpp names the exact NDK it expects in tools/android.py and
+        # looks for it under $ANDROID_HOME/ndk/: the ndk_version option from
+        # 4.5, get_ndk_version() before it.
         run: |
           set -euo pipefail
           NDK=$(python3 - <<'PY'
           import re
           text = open('src/spine-godot/godot-cpp/tools/android.py').read()
-          print(re.search(r'"ndk_version",\s*"[^"]*",\s*"([0-9.]+)"', text).group(1))
+          m = (re.search(r'"ndk_version",\s*"[^"]*",\s*"([0-9.]+)"', text)
+               or re.search(r'def get_ndk_version\(\):\s*return "([0-9.]+)"', text))
+          print(m.group(1))
           PY
           )
           echo "godot-cpp wants NDK $NDK"
