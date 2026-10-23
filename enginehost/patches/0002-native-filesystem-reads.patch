@@ -1,0 +1,21 @@
+diff --git a/platform/android/os_android.cpp b/platform/android/os_android.cpp
+index 92dc5f9..dbdba9f 100644
+--- a/platform/android/os_android.cpp
++++ b/platform/android/os_android.cpp
+@@ -96,7 +96,15 @@ void OS_Android::initialize_core() {
+ 	}
+ #endif
+ 	FileAccess::make_default<FileAccessUnix>(FileAccess::ACCESS_USERDATA);
+-	FileAccess::make_default<FileAccessFilesystemJAndroid>(FileAccess::ACCESS_FILESYSTEM);
++	// Enginehost: absolute paths (the game's pack and its files) are read natively, buffered by
++	// stdio. The Java handler is one JNI call and one read per get_8, millions of them while a
++	// large pack loads (Droidtop/tracker#604). Enginehost holds all-files access and hands the
++	// engine real paths, so the Java handler's content:// support is never needed under it.
++	if (getenv("ENGINEHOST_SAVE_PATH")) {
++		FileAccess::make_default<FileAccessUnix>(FileAccess::ACCESS_FILESYSTEM);
++	} else {
++		FileAccess::make_default<FileAccessFilesystemJAndroid>(FileAccess::ACCESS_FILESYSTEM);
++	}
+ 
+ #ifdef TOOLS_ENABLED
+ 	DirAccess::make_default<DirAccessUnix>(DirAccess::ACCESS_RESOURCES);
