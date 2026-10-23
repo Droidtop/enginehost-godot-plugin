@@ -77,7 +77,7 @@ index e9dbcc29dcb80383cd2f49559992062eecf03093..eb2452be90d84d0a092e231e8a8d24bd
  	const char **cmdline = nullptr;
  	jstring *j_cmdline = nullptr;
 diff --git a/platform/android/os_android.cpp b/platform/android/os_android.cpp
-index c562013bacceadb76b12fc462d413204bdf9caf2..027f8e8d95063ef80136a6eaff76774a676b475e 100644
+index c562013bacceadb76b12fc462d413204bdf9caf2..168c07d042ef67c6aecb6b874c3dfb79792ce2c0 100644
 --- a/platform/android/os_android.cpp
 +++ b/platform/android/os_android.cpp
 @@ -30,6 +30,8 @@
@@ -159,7 +159,7 @@ index c562013bacceadb76b12fc462d413204bdf9caf2..027f8e8d95063ef80136a6eaff76774a
  	return "Android";
  }
  
-@@ -732,6 +771,31 @@ String OS_Android::get_user_data_dir(const String &p_user_dir) const {
+@@ -732,6 +771,35 @@ String OS_Android::get_user_data_dir(const String &p_user_dir) const {
  		return data_dir_cache;
  	}
  
@@ -179,19 +179,23 @@ index c562013bacceadb76b12fc462d413204bdf9caf2..027f8e8d95063ef80136a6eaff76774a
 +	if (enginehost_game_save_path && enginehost_game_save_path[0] != 0) {
 +		data_dir_cache = String::utf8(enginehost_game_save_path);
 +		DirAccess::make_dir_recursive_absolute(data_dir_cache);
++		// Where user:// is, for the wrapper to tell Enginehost (EngineHost.reportSaveDirectory).
++		setenv("ENGINEHOST_USER_DATA_DIR", data_dir_cache.utf8().get_data(), 1);
 +		return data_dir_cache;
 +	}
 +	if (enginehost_save_path && enginehost_save_path[0] != 0 && !p_user_dir.is_empty()) {
 +		String data_dir = String::utf8(enginehost_save_path).path_join(p_user_dir);
 +		DirAccess::make_dir_recursive_absolute(data_dir);
 +		data_dir_cache = data_dir;
++		// Where user:// is, for the wrapper to tell Enginehost (EngineHost.reportSaveDirectory).
++		setenv("ENGINEHOST_USER_DATA_DIR", data_dir_cache.utf8().get_data(), 1);
 +		return data_dir_cache;
 +	}
 +
  	String data_dir = godot_io_java->get_user_data_dir(p_user_dir);
  	if (!data_dir.is_empty()) {
  		data_dir_cache = _remove_symlink(data_dir);
-@@ -879,6 +943,29 @@ Error OS_Android::verify_apk(const String &p_apk_path) {
+@@ -879,6 +947,29 @@ Error OS_Android::verify_apk(const String &p_apk_path) {
  #endif
  
  bool OS_Android::_check_internal_feature_support(const String &p_feature) {

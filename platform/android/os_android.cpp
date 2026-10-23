@@ -750,12 +750,16 @@ String OS_Android::get_user_data_dir(const String &p_user_dir) const {
 	if (enginehost_game_save_path && enginehost_game_save_path[0] != 0) {
 		data_dir_cache = String::utf8(enginehost_game_save_path);
 		DirAccess::make_dir_recursive_absolute(data_dir_cache);
+		// Where user:// is, for the wrapper to tell Enginehost (EngineHost.reportSaveDirectory).
+		setenv("ENGINEHOST_USER_DATA_DIR", data_dir_cache.utf8().get_data(), 1);
 		return data_dir_cache;
 	}
 	if (enginehost_save_path && enginehost_save_path[0] != 0 && !p_user_dir.is_empty()) {
 		String data_dir = String::utf8(enginehost_save_path).path_join(p_user_dir);
 		DirAccess::make_dir_recursive_absolute(data_dir);
 		data_dir_cache = data_dir;
+		// Where user:// is, for the wrapper to tell Enginehost (EngineHost.reportSaveDirectory).
+		setenv("ENGINEHOST_USER_DATA_DIR", data_dir_cache.utf8().get_data(), 1);
 		return data_dir_cache;
 	}
 

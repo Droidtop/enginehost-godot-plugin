@@ -146,6 +146,13 @@ puts the project's own directory inside it under the desktop's own rule
 (`OS_Unix::get_user_data_dir`): `godot/app_userdata/<project name>`, or the
 project's custom user directory. Outside Enginehost nothing changes.
 
+Only the engine knows that name, so it says it: `get_user_data_dir` exports the
+folder it resolved as `ENGINEHOST_USER_DATA_DIR` (lines 4.2 and later), and the
+wrapper hands it to Enginehost (`EngineHost.reportSaveDirectory`) after the engine
+starts and again when the game is left. Enginehost then names that folder as the
+game's saves (its `GAME_ENDED` broadcast, Droidtop/tracker#547) instead of the
+whole save folder.
+
 Godot is copyright its contributors and licensed under MIT. The Maven artifact
 retains upstream notices; see <https://godotengine.org/license/> and the
 [official Android-library documentation](https://docs.godotengine.org/en/stable/tutorials/platform/android/android_library.html).
