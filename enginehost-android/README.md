@@ -151,3 +151,22 @@ retains upstream notices; see <https://godotengine.org/license/> and the
 [official Android-library documentation](https://docs.godotengine.org/en/stable/tutorials/platform/android/android_library.html).
 
 No game files are copied. Builds run only in CI.
+
+## Engine patches
+
+`enginehost/patches/series` lists the changes to Godot itself that every line in a version
+range carries. They are applied when a line is composed, before the line's own patch.
+
+- **The window draws without Godot's first frame** (every line). Android gives input focus
+  only to a window that has drawn. `GLSurfaceView` reports the window drawn only after the
+  GL thread finishes a frame, and Godot's first frame boots the whole game. A large pack on
+  slow storage kept that first frame going for minutes. Back then found no focused window,
+  and Android answered with "isn't responding" (Goodbye Eternity, Droidtop/tracker#604). If
+  no frame has come within a second, the window now draws (black) without it, once. The
+  game keeps loading, and Back reaches Enginehost.
+- **Read-ahead for files opened for reading** (4.5 so far). Godot reads a pack a few bytes
+  at a time, and each read was one read from the file through JNI. A 64 KiB window now
+  serves them, and the position is kept in memory, so a seek or a tell costs no call. Files
+  opened for writing are read and positioned exactly as before. The other versions'
+  `DataAccess.kt` differ, so each needs its own port.
+
