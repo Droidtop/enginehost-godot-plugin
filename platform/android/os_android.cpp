@@ -1041,12 +1041,32 @@ Error OS_Android::setup_remote_filesystem(const String &p_server_host, int p_por
 	return err;
 }
 
+// Enginehost: a class nothing registered may come from a component the game is asking for
+// (ClassDB::set_missing_class_handler). Enginehost's GodotComponents says which GDExtension provides it,
+// once Enginehost has it installed and approved, and it is loaded now, up to the level the
+// engine has reached. The Java side may wait on the person; this thread holds no class lock.
+static void _load_missing_class_extension(const StringName &p_class) {
+	GodotJavaWrapper *godot_java = OS_Android::get_singleton()->get_godot_java();
+	if (!godot_java) {
+		return;
+	}
+	String config = godot_java->request_gdextension_for(p_class);
+	if (config.is_empty()) {
+		return;
+	}
+	GDExtensionManager::LoadStatus err = GDExtensionManager::get_singleton()->load_extension(config);
+	ERR_FAIL_COND_MSG(err == GDExtensionManager::LOAD_STATUS_FAILED || err == GDExtensionManager::LOAD_STATUS_NEEDS_RESTART,
+			vformat("Error loading the extension that provides '%s': %s", String(p_class), config));
+	print_line(vformat("Loaded %s for '%s'.", config, String(p_class)));
+}
+
 void OS_Android::load_platform_gdextensions() const {
 	Vector<String> extension_list_config_file = godot_java->get_gdextension_list_config_file();
 	for (String config_file_path : extension_list_config_file) {
 		GDExtensionManager::LoadStatus err = GDExtensionManager::get_singleton()->load_extension(config_file_path);
 		ERR_CONTINUE_MSG(err == GDExtensionManager::LOAD_STATUS_FAILED, "Error loading platform extension: " + config_file_path);
 	}
+	ClassDB::set_missing_class_handler(_load_missing_class_extension);
 }
 
 OS_Android::~OS_Android() {

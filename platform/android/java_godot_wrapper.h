@@ -64,6 +64,8 @@ private:
 	jmethodID _request_permissions = nullptr;
 	jmethodID _get_granted_permissions = nullptr;
 	jmethodID _get_gdextension_list_config_file = nullptr;
+	jclass _components_class = nullptr;
+	jmethodID _request_gdextension_for = nullptr;
 	jmethodID _get_ca_certificates = nullptr;
 	jmethodID _init_input_devices = nullptr;
 	jmethodID _vibrate = nullptr;
@@ -126,6 +128,10 @@ public:
 
 	// Return the list of gdextensions config file.
 	Vector<String> get_gdextension_list_config_file() const;
+
+	// Enginehost: the GDExtension config that provides p_class, asked of the plugin's
+	// GodotComponents (it may wait on the person); empty for none.
+	String request_gdextension_for(const String &p_class) const;
 
 	// Return true if the given feature is supported.
 	bool has_feature(const String &p_feature) const;

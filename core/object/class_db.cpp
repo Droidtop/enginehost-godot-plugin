@@ -33,6 +33,7 @@
 #include "core/config/engine.h"
 #include "core/io/resource_loader.h"
 #include "core/object/script_language.h"
+#include "core/os/mutex.h"
 #include "core/version.h"
 
 #ifdef DEBUG_ENABLED
@@ -516,7 +517,49 @@ uint32_t ClassDB::get_api_hash(APIType p_api) {
 #endif // DEBUG_ENABLED
 }
 
+static ClassDB::MissingClassHandler missing_class_handler = nullptr;
+static Mutex missing_class_mutex;
+static HashSet<StringName> missing_classes_asked;
+static thread_local bool missing_class_asking = false;
+
+// Enginehost: asks for p_class when nothing registered it; nothing without a handler.
+static inline void ask_if_missing(const StringName &p_class) {
+	if (missing_class_handler) {
+		ClassDB::class_exists(p_class);
+	}
+}
+
 bool ClassDB::class_exists(const StringName &p_class) {
+	{
+		Locker::Lock lock(Locker::STATE_READ);
+		if (classes.has(p_class)) {
+			return true;
+		}
+	}
+	return _ask_for_missing_class(p_class);
+}
+
+void ClassDB::set_missing_class_handler(MissingClassHandler p_handler) {
+	missing_class_handler = p_handler;
+}
+
+// Whether p_class exists after asking for it. One ask at a time: a second
+// thread wanting the same class waits for the first answer, then finds it.
+bool ClassDB::_ask_for_missing_class(const StringName &p_class) {
+	if (!missing_class_handler || missing_class_asking || Locker::is_held()) {
+		return false;
+	}
+	// A game's own named script class is not one a component provides.
+	if (ScriptServer::is_global_class(p_class)) {
+		return false;
+	}
+	MutexLock asking(missing_class_mutex);
+	if (!missing_classes_asked.has(p_class)) {
+		missing_classes_asked.insert(p_class);
+		missing_class_asking = true;
+		missing_class_handler(p_class);
+		missing_class_asking = false;
+	}
 	Locker::Lock lock(Locker::STATE_READ);
 	return classes.has(p_class);
 }
@@ -534,6 +577,7 @@ StringName ClassDB::get_compatibility_class(const StringName &p_class) {
 }
 
 Object *ClassDB::_instantiate_internal(const StringName &p_class, bool p_require_real_class, bool p_notify_postinitialize, bool p_exposed_only) {
+	ask_if_missing(p_class);
 	ClassInfo *ti;
 	{
 		Locker::Lock lock(Locker::STATE_READ);
@@ -770,6 +814,7 @@ void ClassDB::set_object_extension_instance(Object *p_object, const StringName &
 }
 
 bool ClassDB::can_instantiate(const StringName &p_class) {
+	ask_if_missing(p_class);
 	String script_path;
 	{
 		Locker::Lock lock(Locker::STATE_READ);
@@ -796,6 +841,7 @@ use_script:
 }
 
 bool ClassDB::is_abstract(const StringName &p_class) {
+	ask_if_missing(p_class);
 	String script_path;
 	{
 		Locker::Lock lock(Locker::STATE_READ);
@@ -828,6 +874,7 @@ use_script:
 }
 
 bool ClassDB::is_virtual(const StringName &p_class) {
+	ask_if_missing(p_class);
 	String script_path;
 	{
 		Locker::Lock lock(Locker::STATE_READ);

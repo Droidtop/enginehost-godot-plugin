@@ -175,6 +175,9 @@ public:
 		inline thread_local static State thread_state = STATE_UNLOCKED;
 
 	public:
+		// Enginehost: whether this thread holds the lock (ClassDB::set_missing_class_handler).
+		static bool is_held() { return thread_state != STATE_UNLOCKED; }
+
 		class Lock {
 			State state = STATE_UNLOCKED;
 
@@ -228,7 +231,18 @@ private:
 
 	static bool _can_instantiate(ClassInfo *p_class_info, bool p_exposed_only = true);
 
+	// Enginehost: see set_missing_class_handler.
+	static bool _ask_for_missing_class(const StringName &p_class);
+
 public:
+	// Enginehost: a class nothing registered may be one a game asks for that
+	// comes from a component (a GDExtension) installed separately, which the
+	// platform loads at that moment. The handler is asked once per name, never
+	// while this thread holds the class lock (loading registers classes, and a
+	// read lock cannot become a write lock), and never from inside itself.
+	typedef void (*MissingClassHandler)(const StringName &p_class);
+	static void set_missing_class_handler(MissingClassHandler p_handler);
+
 	template <typename T>
 	static void register_class(bool p_virtual = false) {
 		Locker::Lock lock(Locker::STATE_WRITE);

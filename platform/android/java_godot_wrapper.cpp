@@ -87,6 +87,26 @@ GodotJavaWrapper::GodotJavaWrapper(JNIEnv *p_env, jobject p_godot_instance) {
 	_is_in_immersive_mode = p_env->GetMethodID(godot_class, "isInImmersiveMode", "()Z");
 	_on_editor_workspace_selected = p_env->GetMethodID(godot_class, "nativeOnEditorWorkspaceSelected", "(Ljava/lang/String;)V");
 	_get_activity = p_env->GetMethodID(godot_class, "getActivity", "()Landroid/app/Activity;");
+
+	// Enginehost: the Java side of Godot is the stock AAR, so the plugin answers for a missing
+	// class with a static method of its own, found through the class loader that loaded Godot's
+	// classes (the plugin's). A plugin build without it leaves the call unset. The plugin is not
+	// minified; this lookup is by name.
+	jclass components_class = jni_find_class(p_env, "dev/enginehost/plugin/godot/GodotComponents");
+	if (p_env->ExceptionCheck()) {
+		p_env->ExceptionClear();
+	}
+	if (components_class) {
+		_request_gdextension_for = p_env->GetStaticMethodID(components_class, "requestGDExtensionFor", "(Ljava/lang/String;)Ljava/lang/String;");
+		if (p_env->ExceptionCheck()) {
+			p_env->ExceptionClear();
+			_request_gdextension_for = nullptr;
+		}
+		if (_request_gdextension_for) {
+			_components_class = (jclass)p_env->NewGlobalRef(components_class);
+		}
+		p_env->DeleteLocalRef(components_class);
+	}
 }
 
 GodotJavaWrapper::~GodotJavaWrapper() {
@@ -98,6 +118,9 @@ GodotJavaWrapper::~GodotJavaWrapper() {
 	ERR_FAIL_NULL(env);
 	env->DeleteGlobalRef(godot_instance);
 	env->DeleteGlobalRef(godot_class);
+	if (_components_class) {
+		env->DeleteGlobalRef(_components_class);
+	}
 }
 
 jobject GodotJavaWrapper::get_activity() {
@@ -428,6 +451,27 @@ Vector<String> GodotJavaWrapper::get_gdextension_list_config_file() const {
 		}
 	}
 	return config_file_list;
+}
+
+String GodotJavaWrapper::request_gdextension_for(const String &p_class) const {
+	String config;
+	if (_request_gdextension_for) {
+		JNIEnv *env = get_jni_env();
+		ERR_FAIL_NULL_V(env, config);
+		jstring j_class = env->NewStringUTF(p_class.utf8().get_data());
+		jstring j_config = (jstring)env->CallStaticObjectMethod(_components_class, _request_gdextension_for, j_class);
+		if (env->ExceptionCheck()) {
+			env->ExceptionDescribe();
+			env->ExceptionClear();
+			j_config = nullptr;
+		}
+		if (j_config) {
+			config = jstring_to_string(j_config, env);
+			env->DeleteLocalRef(j_config);
+		}
+		env->DeleteLocalRef(j_class);
+	}
+	return config;
 }
 
 String GodotJavaWrapper::get_ca_certificates() const {

@@ -181,6 +181,18 @@ range carries. They are applied when a line is composed, before the line's own p
   Enginehost holds all-files access and hands the engine real paths, so the Java handler's
   `content://` support is never needed there. This replaces
   4.5's Java-side read-ahead, which could not help: each read still crossed JNI.
+- **A missing class is asked for** (`4.5-components` for now, in its own patch). When a game
+  names a class neither the engine nor its own scripts define (a scene's `SpineSprite`, a
+  script's `extends SpineSprite`), `ClassDB` asks a handler before answering no, outside its
+  class lock, once per name, one ask at a time. Android's handler calls the plugin's
+  `GodotComponents.requestGDExtensionFor` (a static method looked up by name, since Godot's
+  Java side is the stock AAR), which asks Enginehost for the component that provides it
+  (`EngineHost.requestComponent`). Enginehost answers with the installed, approved bundle, or
+  installs it, or has the person accept its licence, while the engine's thread waits. The
+  answer is a `.gdextension` config, which `GDExtensionManager` loads then, up to the level the
+  engine has reached. The game goes on with the class, or without it as before. Godot's
+  render thread can wait like this: its `GLSurfaceView` and Vulkan thread do not wait on it
+  when the request screen pauses or hides the game.
 
 
 ## Runtime components
@@ -203,6 +215,13 @@ parses. The game's own files are never edited. A component is found in one of th
 `4.5-components` (`dev.enginehost.godot.v45.v2`) is the stock 4.5.1 engine with no module
 compiled in, whose capability loads spine-godot as a separate component. It is the line the
 compiled-in Spine is compared against before it is retired (Droidtop/tracker#291).
+
+A game asks for a component while it runs, too ("games asks, and it receives", 2026-10-23;
+Enginehost docs/engine-bundle-format.md, "A game asks, and receives"), on a line whose engine
+carries the missing-class patch above. `GodotComponents.PROVIDERS` says which component provides
+a class, by the prefix its classes share (`Spine` is spine-godot's), and each component is asked
+for once per run. On a line without the patch, or on an Enginehost older than
+`requestComponent`, nothing asks, and components come only from the launch.
 
 ## The spine-godot component line
 
