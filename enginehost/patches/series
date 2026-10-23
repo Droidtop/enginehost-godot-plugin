@@ -1,0 +1,7 @@
+# Engine patches every Godot line in the range needs (droidtop-platforms tools/plugin_line.py),
+# applied before each line's own patch. What each does: enginehost-android/README.md, "Engine patches".
+# 4.6 moved the Android library's sources under src/main/java, hence the second copy.
+<4.6 0001-window-draws-without-first-frame.patch
+>=4.6 0001-window-draws-without-first-frame-4_6.patch
+# DataAccess.kt differs in every minor version; only 4.5's copy has been ported so far.
+>=4.5,<4.6 0002-read-ahead-for-read-only-files-4_5.patch
