@@ -124,11 +124,12 @@ void OS_Android::initialize_core() {
 	// rig, Android 9). Natively the kernel's own permissions decide, as they
 	// do for the Java handler's own reads of the paths it does accept.
 	const bool unscoped_storage = android_get_device_api_level() < __ANDROID_API_R__;
-	if (unscoped_storage) {
-		FileAccess::make_default<FileAccessUnix>(FileAccess::ACCESS_FILESYSTEM);
-	} else {
-		FileAccess::make_default<FileAccessFilesystemJAndroid>(FileAccess::ACCESS_FILESYSTEM);
-	}
+	// Enginehost, on every API level: the Java handler also costs one JNI call and one read
+	// per get_8, and a large pack's load made millions of them (Goodbye Eternity: 8 to 13
+	// thousand one-byte reads a second on BlueStacks, black for minutes; Droidtop/tracker#604).
+	// This build runs only under Enginehost, which holds all-files access and hands the engine
+	// real paths, so the Java handler's content:// support is never needed: stdio, buffered.
+	FileAccess::make_default<FileAccessUnix>(FileAccess::ACCESS_FILESYSTEM);
 
 #ifdef TOOLS_ENABLED
 	DirAccess::make_default<DirAccessUnix>(DirAccess::ACCESS_RESOURCES);
