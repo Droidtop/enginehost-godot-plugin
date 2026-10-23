@@ -170,3 +170,18 @@ range carries. They are applied when a line is composed, before the line's own p
   opened for writing are read and positioned exactly as before. The other versions'
   `DataAccess.kt` differ, so each needs its own port.
 
+
+## The spine-godot component line
+
+`enginehost/lines/component-spine-godot-4.2` is not a Godot line. Its upstream is
+spine-runtimes at the 4.2 branch, and it builds the spine-godot GDExtension as a separately
+installed component bundle (`kind: component`, `dev.enginehost.godot.component.spine-godot.v42`,
+under the Spine Runtimes License; Enginehost docs/engine-bundle-format.md, "Component bundles").
+It carries one build per Godot series from 4.2 to 4.6, each against godot-cpp at that series'
+release tag (4.6 uses the 4.5 API, as godot-cpp has no 4.6 tag), for arm64-v8a and x86_64:
+`godot-<series>/spine-godot.gdextension` and `lib/<abi>/godot-<series>/libspine_godot.so`.
+
+Its `line.json` says `"sharedPatches": false`, so the Godot patch series above is not applied to
+spine-runtimes. Its own patch drops spine-runtimes' GitHub workflows, so only this
+repository's build runs on the line. Its tree's `LICENSE` is spine-runtimes' own (plugin-core's
+would otherwise replace it), and the build checks it is the file at the pinned commit.

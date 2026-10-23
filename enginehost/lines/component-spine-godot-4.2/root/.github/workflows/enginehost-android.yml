@@ -1,0 +1,246 @@
+name: Build Enginehost bundle
+
+# The spine-godot runtime component (Enginehost docs/engine-bundle-format.md,
+# "Component bundles" and "Godot: components are GDExtensions"): Esoteric's
+# GDExtension flavor of spine-godot at the pinned 4.2 branch, one build per
+# Godot series the component supports, for arm64-v8a and x86_64, signed and
+# published as a `kind: component` bundle under the Spine Runtimes License.
+# This line's tree is spine-runtimes itself (enginehost/line.json), so the
+# checkout is the source.
+
+on:
+  push:
+    branches: ["plugin/**"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: >-
+          Promote this build to a GitHub Release on the chosen channel. Stable is
+          for a bundle that has been used with real games on hardware; testing
+          for one that runs games but has not been lived with. Every push
+          already publishes to the unstable channel by itself.
+        type: boolean
+        default: false
+      channel:
+        description: "Release channel for a promoted build"
+        type: choice
+        options: [stable, testing]
+        default: stable
+      tag:
+        description: "Release tag (default: derived from the bundle id; testing adds -testing)"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  extension:
+    # godot-cpp at each series' release tag, so every build is compiled
+    # against exactly the API that series exposes. godot-cpp has no 4.6 tag;
+    # the 4.6 build uses the 4.5 API, which GDExtension guarantees 4.6 loads.
+    name: spine-godot for Godot ${{ matrix.godot.series }} (${{ matrix.abi.abi }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        godot:
+          - { series: "4.2", cpp: 98c143a48365f3f3bf5f99d6289a2cb25e6472d1 } # godot-4.2.2-stable
+          - { series: "4.3", cpp: fbbf9ec4efd8f1055d00edb8d926eef8ba4c2cce } # godot-4.3-stable
+          - { series: "4.4", cpp: e4b7c25e721ce3435a029087e3917a30aa73f06b } # godot-4.4.1-stable
+          - { series: "4.5", cpp: e83fd0904c13356ed1d4c3d09f8bb9132bdc6b77 } # godot-4.5-stable
+          - { series: "4.6", cpp: e83fd0904c13356ed1d4c3d09f8bb9132bdc6b77 } # godot-4.5-stable
+        abi:
+          - { arch: arm64, abi: arm64-v8a }
+          - { arch: x86_64, abi: x86_64 }
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          path: src
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          repository: godotengine/godot-cpp
+          ref: ${{ matrix.godot.cpp }}
+          path: src/spine-godot/godot-cpp
+
+      - name: Setup SCons
+        # The version Godot's own CI uses.
+        run: |
+          pipx install scons==4.9.0
+          scons --version
+
+      - name: Install the NDK godot-cpp builds with
+        # godot-cpp names the exact NDK it expects (tools/android.py,
+        # ndk_version) and looks for it under $ANDROID_HOME/ndk/.
+        run: |
+          set -euo pipefail
+          NDK=$(python3 - <<'PY'
+          import re
+          text = open('src/spine-godot/godot-cpp/tools/android.py').read()
+          print(re.search(r'"ndk_version",\s*"[^"]*",\s*"([0-9.]+)"', text).group(1))
+          PY
+          )
+          echo "godot-cpp wants NDK $NDK"
+          if [ ! -d "$ANDROID_HOME/ndk/$NDK" ]; then
+            SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+            # `yes` gets SIGPIPE when sdkmanager exits, which pipefail turns into a failure: accept the
+            # licences on their own, then install without a pipe and print the log if it fails.
+            (yes || true) | "$SDKM" --licenses >/dev/null 2>&1 || true
+            "$SDKM" --install "ndk;$NDK" >ndk-install.log 2>&1 || { tail -40 ndk-install.log; exit 1; }
+          fi
+          test -d "$ANDROID_HOME/ndk/$NDK"
+          echo "NDK_ROOT=$ANDROID_HOME/ndk/$NDK" >> "$GITHUB_ENV"
+
+      - name: Build the extension
+        # What setup-extension.sh does besides cloning a moving godot-cpp
+        # branch: spine-cpp goes into spine_godot.
+        run: |
+          set -euo pipefail
+          cp -r src/spine-cpp/spine-cpp src/spine-godot/spine_godot/
+          src/spine-godot/build/build-extension.sh android ${{ matrix.abi.arch }}
+
+      - name: Verify and stage the build
+        run: |
+          set -euo pipefail
+          LIB=src/spine-godot/bin/android/libspine_godot.android.template_release.${{ matrix.abi.arch }}.so
+          test -f "$LIB"
+          # The entry point the component's .gdextension names.
+          "$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm" -D --defined-only "$LIB" \
+            | grep -qw spine_godot_library_init
+          OUT=out/lib/${{ matrix.abi.abi }}/godot-${{ matrix.godot.series }}
+          mkdir -p "$OUT"
+          cp "$LIB" "$OUT/libspine_godot.so"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: spine-godot-${{ matrix.godot.series }}-${{ matrix.abi.abi }}
+          path: out/*
+          if-no-files-found: error
+
+  bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: extension
+    outputs:
+      bundle-id: ${{ steps.pack.outputs.bundle-id }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: spine-godot-*
+          path: build/unsigned/payload
+          merge-multiple: true
+
+      - name: The licence is upstream's
+        # LICENSE in this tree is the line's copy of spine-runtimes' own; it
+        # must be the very file at the pinned upstream commit. A blob-less
+        # fetch of that one commit names the blob without downloading it.
+        run: |
+          set -euo pipefail
+          UPSTREAM=$(python3 -c "import json;print(json.load(open('enginehost/line.json'))['upstream'])")
+          git fetch -q --depth=1 --filter=blob:none https://github.com/EsotericSoftware/spine-runtimes "$UPSTREAM"
+          test "$(git rev-parse "$UPSTREAM:LICENSE")" = "$(git hash-object LICENSE)"
+
+      - name: Pack the unsigned bundle inputs
+        id: pack
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, pathlib, sys
+          payload = pathlib.Path('build/unsigned/payload')
+          metadata = json.load(open('enginehost/bundle-metadata.json'))
+          component = metadata['component']
+          name = component['name']
+          abis = {'arm64-v8a': 'arm64', 'x86_64': 'x86_64'}  # bundle ABI -> Godot arch feature tag
+          for series in component['supportedSeries']:
+              libraries = []
+              for abi, arch in abis.items():
+                  library = f'lib/{abi}/godot-{series}/libspine_godot.so'
+                  # Both ABIs for every series: a component that lost one would
+                  # install and then fail to load on half the devices.
+                  if not (payload / library).is_file():
+                      sys.exit(f'no {abi} build for Godot {series} at {library}')
+                  # Relative to the config's own directory, as GDExtension resolves it.
+                  libraries.append(f'android.{arch} = "../{library}"')
+              config = payload / f'godot-{series}' / f'{name}.gdextension'
+              config.parent.mkdir(parents=True, exist_ok=True)
+              config.write_text(
+                  '[configuration]\n\n'
+                  'entry_symbol = "spine_godot_library_init"\n'
+                  f'compatibility_minimum = "{series}"\n\n'
+                  '[libraries]\n\n' + '\n'.join(libraries) + '\n')
+              print(f'Godot {series}: {config}')
+          staged = sorted(p.relative_to(payload).as_posix() for p in payload.rglob('libspine_godot.so'))
+          expected = sorted(f'lib/{abi}/godot-{s}/libspine_godot.so' for s in component['supportedSeries'] for abi in abis)
+          if staged != expected:
+              sys.exit(f'builds for series the manifest does not declare: {sorted(set(staged) - set(expected))}')
+          PY
+          cp LICENSE "build/unsigned/payload/$(python3 -c "import json;print(json.load(open('enginehost/bundle-metadata.json'))['license']['file'])")"
+          BUNDLE_ID=$(python3 -c "import json;print(json.load(open('enginehost/bundle-metadata.json'))['bundleId'])")
+          echo "bundle-id=$BUNDLE_ID" >> "$GITHUB_OUTPUT"
+          cp enginehost/bundle-metadata.json build/unsigned/bundle-metadata.json
+          # A tar keeps the file modes the manifest signs; an artifact would not.
+          tar -cf build/unsigned.tar -C build/unsigned payload bundle-metadata.json
+          tar -tvf build/unsigned.tar
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ steps.pack.outputs.bundle-id }}-unsigned
+          path: build/unsigned.tar
+          if-no-files-found: error
+
+  sign:
+    # Enginehost's one signing mechanism, pinned by commit: the key never
+    # shares a runner with the build.
+    needs: bundle
+    permissions:
+      contents: read
+    uses: Droidtop/enginehost/.github/workflows/sign-engine-bundle.yml@48e288cbaf9c075156923e0be63b2dc2a796124c
+    with:
+      tooling-sha: 48e288cbaf9c075156923e0be63b2dc2a796124c
+      unsigned-artifact: ${{ needs.bundle.outputs.bundle-id }}-unsigned
+      bundle: ${{ needs.bundle.outputs.bundle-id }}.enginehost.tar.xz
+      artifact-name: ${{ needs.bundle.outputs.bundle-id }}
+      channel: ${{ inputs.channel }}
+    secrets:
+      ENGINEHOST_SIGNING_KEY_PEM: ${{ secrets.ENGINEHOST_SIGNING_KEY_PEM }}
+      ENGINEHOST_CERTIFICATE_KEY_PEM: ${{ secrets.ENGINEHOST_CERTIFICATE_KEY_PEM }}
+
+  publish:
+    needs: [bundle, sign]
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish }}
+    permissions:
+      contents: write
+    uses: Droidtop/enginehost/.github/workflows/publish-engine-bundle.yml@48e288cbaf9c075156923e0be63b2dc2a796124c
+    with:
+      tooling-sha: 48e288cbaf9c075156923e0be63b2dc2a796124c
+      artifact-name: ${{ needs.bundle.outputs.bundle-id }}
+      channel: ${{ inputs.channel }}
+      tag: ${{ inputs.tag }}
+    secrets:
+      PLATFORMS_DISPATCH_TOKEN: ${{ secrets.PLATFORMS_DISPATCH_TOKEN }}
+
+  unstable:
+    needs: [bundle, sign]
+    if: ${{ github.event_name == 'push' }}
+    permissions:
+      contents: write
+    uses: Droidtop/enginehost/.github/workflows/publish-engine-bundle.yml@48e288cbaf9c075156923e0be63b2dc2a796124c
+    with:
+      tooling-sha: 48e288cbaf9c075156923e0be63b2dc2a796124c
+      artifact-name: ${{ needs.bundle.outputs.bundle-id }}
+      channel: unstable
+    secrets:
+      PLATFORMS_DISPATCH_TOKEN: ${{ secrets.PLATFORMS_DISPATCH_TOKEN }}
