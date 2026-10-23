@@ -41,10 +41,9 @@ jobs:
     # The engine this line runs, built from this branch's Godot source (it
     # carries Enginehost's engine changes: the presented platform, pack keys,
     # save path) with NO extra module compiled in. Runtime components such as
-    # spine-godot are separate payload members loaded as GDExtensions
-    # (spine-godot-extension below; Enginehost docs/engine-bundle-format.md,
-    # "Runtime components (subplugins)"), so this one engine build serves
-    # every component combination the bundle declares.
+    # spine-godot are separately installed component bundles loaded as
+    # GDExtensions (the component-spine-godot-4.2 line; Enginehost
+    # docs/engine-bundle-format.md, "Component bundles").
     # One bundle carries every ABI it supports and the host picks lib/<abi>
     # from Build.SUPPORTED_ABIS, so the runtime is compiled once per ABI.
     # `arch` is the SCons name and `abi` is the directory Godot writes into.
@@ -128,98 +127,12 @@ jobs:
           name: godot-runtime-${{ matrix.abi }}
           path: godot-runtime-out/*
 
-  spine-godot-extension:
-    # The spine-godot runtime component: Esoteric's official GDExtension
-    # flavor of spine-godot (spine-godot/build/build-extension.sh, godot-cpp),
-    # pinned to the 4.2 branch that matches the Spine 4.2.x editor exports
-    # found in shipping Godot games, built against godot-cpp for this engine
-    # line. A few megabytes per ABI instead of a second engine build.
-    name: spine-godot extension (${{ matrix.abi }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: arm64
-            abi: arm64-v8a
-          - arch: x86_64
-            abi: x86_64
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          persist-credentials: false
-          repository: EsotericSoftware/spine-runtimes
-          ref: e7dc1435fa4a0083ab431f1b28e083c14a1f5c68
-          path: spine-runtimes-src
-
-      # godot-cpp at the engine line's release tag (godot-4.5-stable), so
-      # the extension is built against exactly the API this engine exposes.
-      # setup-extension.sh would clone the moving 4.5 branch instead; the
-      # rest of what it does (spine-cpp into spine_godot) is the step below.
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          persist-credentials: false
-          repository: godotengine/godot-cpp
-          ref: e83fd0904c13356ed1d4c3d09f8bb9132bdc6b77
-          path: spine-runtimes-src/spine-godot/godot-cpp
-
-      - name: Setup SCons
-        # The version Godot's own CI uses (.github/actions/godot-deps).
-        run: |
-          pipx install scons==4.9.0
-          scons --version
-
-      - name: Install the NDK godot-cpp builds with
-        # godot-cpp names the exact NDK it expects (tools/android.py,
-        # ndk_version) and looks for it under $ANDROID_HOME/ndk/.
-        run: |
-          set -euo pipefail
-          NDK=$(python3 - <<'PY'
-          import re
-          text = open('spine-runtimes-src/spine-godot/godot-cpp/tools/android.py').read()
-          print(re.search(r'"ndk_version",\s*"[^"]*",\s*"([0-9.]+)"', text).group(1))
-          PY
-          )
-          echo "godot-cpp wants NDK $NDK"
-          if [ ! -d "$ANDROID_HOME/ndk/$NDK" ]; then
-            SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          # `yes` gets SIGPIPE when sdkmanager exits, which pipefail turns into a failure: accept the
-          # licences on their own, then install without a pipe and print the log if it fails.
-          (yes || true) | "$SDKM" --licenses >/dev/null 2>&1 || true
-          "$SDKM" --install "ndk;$NDK" >ndk-install.log 2>&1 || { tail -40 ndk-install.log; exit 1; }
-          fi
-          test -d "$ANDROID_HOME/ndk/$NDK"
-          echo "NDK_ROOT=$ANDROID_HOME/ndk/$NDK" >> "$GITHUB_ENV"
-
-      - name: Build the extension
-        run: |
-          set -euo pipefail
-          cp -r spine-runtimes-src/spine-cpp/spine-cpp spine-runtimes-src/spine-godot/spine_godot/
-          spine-runtimes-src/spine-godot/build/build-extension.sh android ${{ matrix.arch }}
-
-      - name: Verify and stage the component
-        run: |
-          set -euo pipefail
-          LIB=spine-runtimes-src/spine-godot/bin/android/libspine_godot.android.template_release.${{ matrix.arch }}.so
-          test -f "$LIB"
-          # The entry point the component's .gdextension names.
-          "$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm" -D --defined-only "$LIB"             | grep -qw spine_godot_library_init
-          mkdir -p spine-godot-out/lib/${{ matrix.abi }}
-          cp "$LIB" spine-godot-out/lib/${{ matrix.abi }}/libspine_godot.so
-          cp spine-runtimes-src/LICENSE spine-godot-out/LICENSE-spine-runtimes.txt
-
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: spine-godot-extension-${{ matrix.abi }}
-          path: spine-godot-out/*
-
   bundle:
     # Builds and packs the payload. No signing key and no write token here:
     # Gradle, its plugins and the third-party actions below run in this job
     # (Enginehost docs/security/2026-09-24-ci-supply-chain.md).
     runs-on: ubuntu-latest
-    needs: [godot-runtime, spine-godot-extension]
+    needs: [godot-runtime]
     outputs:
       bundle-id: ${{ steps.pack.outputs.bundle-id }}
     steps:
@@ -232,11 +145,6 @@ jobs:
           pattern: godot-runtime-*
           merge-multiple: true
           path: godot-runtime
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          pattern: spine-godot-extension-*
-          merge-multiple: true
-          path: spine-godot
       - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
@@ -298,10 +206,6 @@ jobs:
           test -f build/unsigned/payload/lib/arm64-v8a/libgodot_android.so
           test -f build/unsigned/payload/lib/x86_64/libgodot_android.so
           cp LICENSE.txt COPYRIGHT.txt build/unsigned/payload/
-          # Every component the metadata declares, at
-          # components/<name>/<version>/: its libraries for both ABIs, its
-          # licence, and the .gdextension the wrapper hands the engine.
-          python3 enginehost/stage-components.py build/unsigned/payload
           # The bundle identity is the metadata's, so a version branch
           # cannot emit a file claiming to be a different release.
           BUNDLE_ID=$(python3 -c "import json;print(json.load(open('enginehost/bundle-metadata.json'))['bundleId'])")
