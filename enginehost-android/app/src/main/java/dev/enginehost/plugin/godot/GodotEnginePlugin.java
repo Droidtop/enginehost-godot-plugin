@@ -35,6 +35,8 @@ public final class GodotEnginePlugin implements EnginePlugin {
         java.util.Set<String> components = GodotComponents.configs(session);
         // And what the game asks for while it runs, on a line whose engine asks.
         GodotComponents.answerRequests(session);
+        // And the links it opens (OS.shell_open), offered by Enginehost.
+        GodotLinks.answerFor(session);
         // Where user:// goes: the save folder the person chose in Enginehost.
         // The engine reads this in OS_Android::get_user_data_dir and puts the
         // project's own user directory inside it, as it does on a desktop.

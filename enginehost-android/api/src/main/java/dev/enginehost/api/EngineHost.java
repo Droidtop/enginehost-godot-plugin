@@ -14,6 +14,12 @@ public interface EngineHost {
      * {@link #restart}.
      */
     default File requestComponent(String name) { return null; }
+    /**
+     * A link the game asks to open, offered to the person by Enginehost and never opened by the
+     * core; returns at once, true when Enginehost took it. Same compatibility rule as
+     * {@link #restart}.
+     */
+    default boolean openLink(String url) { return false; }
     File cacheDirectory();
     EngineFileSystem fileSystem();
     void finish();
