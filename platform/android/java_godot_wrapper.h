@@ -52,6 +52,8 @@ private:
 	jmethodID _on_video_init = nullptr;
 	jmethodID _restart = nullptr;
 	jmethodID _finish = nullptr;
+	jclass _links_class = nullptr;
+	jmethodID _offer_link = nullptr;
 	jmethodID _set_keep_screen_on = nullptr;
 	jmethodID _alert = nullptr;
 	jmethodID _get_GLES_version_code = nullptr;
@@ -113,6 +115,10 @@ public:
 	void begin_benchmark_measure(const String &p_label);
 	void end_benchmark_measure(const String &p_label);
 	void dump_benchmark(const String &benchmark_file);
+
+	// Enginehost: offers a link the game opens through Enginehost (EngineHost.openLink);
+	// false when it cannot, and then nothing opens it.
+	bool offer_link(const String &p_url) const;
 };
 
 #endif // JAVA_GODOT_WRAPPER_H
