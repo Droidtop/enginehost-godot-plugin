@@ -1,10 +1,12 @@
 package dev.enginehost.plugin.godot;
 
 import android.util.Log;
+import dev.enginehost.api.EngineHost;
 import dev.enginehost.api.EnginePluginSession;
 import java.io.File;
 import java.io.IOException;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
@@ -46,7 +48,69 @@ final class GodotComponents {
     private static final Pattern SEGMENT = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]*");
     private static final Pattern SERIES = Pattern.compile("^(\\d+\\.\\d+)");
 
+    /**
+     * Which component provides a class, by the prefix its classes share. A
+     * component's classes are its own namespace (spine-godot's are all
+     * Spine*), and a game's own named script classes never reach here: the
+     * engine asks only for a class neither ClassDB nor the game's scripts
+     * define.
+     */
+    private static final String[][] PROVIDERS = {{"Spine", "spine-godot"}};
+
+    /** Who answers this launch's requests, and for which series; set before the engine starts. */
+    private static volatile EngineHost answering;
+    private static volatile String answeringSeries;
+    /** Components already asked for in this run: one ask each, whatever the answer. */
+    private static final Set<String> ASKED = new HashSet<>();
+
     private GodotComponents() {}
+
+    /** From onCreate, before the engine starts: this launch's requests go to its host. */
+    static void answerRequests(EnginePluginSession session) throws IOException {
+        answeringSeries = series(session.runtimeVersion());
+        answering = session.host();
+    }
+
+    /**
+     * Called by the engine (java_godot_wrapper.cpp, on a line whose engine
+     * asks; ClassDB::set_missing_class_handler) when the game names a class
+     * nothing registered: the GDExtension config that provides it, which the
+     * engine then loads, or null. The game asks, and receives (Enginehost
+     * docs/engine-bundle-format.md, "A game asks, and receives"): Enginehost
+     * picks the version the game's files call for, and installs it or has the
+     * person accept its licence while this waits, on the engine's thread.
+     */
+    static String requestGDExtensionFor(String className) {
+        String name = null;
+        for (String[] provider : PROVIDERS) {
+            if (className.startsWith(provider[0])) name = provider[1];
+        }
+        EngineHost host = answering;
+        if (name == null || host == null) return null;
+        synchronized (ASKED) {
+            if (!ASKED.add(name)) return null;
+        }
+        File root;
+        try {
+            root = host.requestComponent(name);
+        } catch (IncompatibleClassChangeError olderHost) {
+            // An Enginehost from before requestComponent(): it can only
+            // supply components chosen at launch (configs()).
+            Log.i(TAG, "This Enginehost cannot supply " + name + " while a game runs");
+            return null;
+        }
+        if (root == null) {
+            Log.i(TAG, "The game asked for " + name + " (" + className + "); none was given");
+            return null;
+        }
+        File config = new File(root, "godot-" + answeringSeries + "/" + name + ".gdextension");
+        if (!config.isFile()) {
+            Log.w(TAG, "The " + name + " component has no build for Godot " + answeringSeries);
+            return null;
+        }
+        Log.i(TAG, "The game asked for " + name + " (" + className + "); loading " + config);
+        return config.getAbsolutePath();
+    }
 
     /** Absolute paths of the configs to load for this launch, in a stable order. */
     static Set<String> configs(EnginePluginSession session) throws IOException {
