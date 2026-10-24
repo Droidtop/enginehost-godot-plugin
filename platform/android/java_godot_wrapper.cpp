@@ -103,6 +103,25 @@ GodotJavaWrapper::GodotJavaWrapper(JNIEnv *p_env, jobject p_godot_native_bridge)
 	_enter_pip_mode = p_env->GetMethodID(godot_native_bridge_class, "nativeEnterPiPMode", "()V");
 	_set_pip_mode_aspect_ratio = p_env->GetMethodID(godot_native_bridge_class, "nativeSetPiPModeAspectRatio", "(II)V");
 	_set_auto_enter_pip_mode_on_background = p_env->GetMethodID(godot_native_bridge_class, "nativeSetAutoEnterPiPModeOnBackground", "(Z)V");
+
+	// Enginehost: a link the game opens (OS.shell_open) goes to the plugin's GodotLinks, which
+	// asks Enginehost to offer it (docs/SPEC.md, "Links a game opens"). Found by name in the
+	// class loader that loaded Godot's classes (the plugin's); absent in a plugin without it.
+	jclass links_class = jni_find_class(p_env, "dev/enginehost/plugin/godot/GodotLinks");
+	if (p_env->ExceptionCheck()) {
+		p_env->ExceptionClear();
+	}
+	if (links_class) {
+		_offer_link = p_env->GetStaticMethodID(links_class, "openLink", "(Ljava/lang/String;)Z");
+		if (p_env->ExceptionCheck()) {
+			p_env->ExceptionClear();
+			_offer_link = nullptr;
+		}
+		if (_offer_link) {
+			_links_class = (jclass)p_env->NewGlobalRef(links_class);
+		}
+		p_env->DeleteLocalRef(links_class);
+	}
 }
 
 GodotJavaWrapper::~GodotJavaWrapper() {
@@ -755,4 +774,21 @@ void GodotJavaWrapper::set_auto_enter_pip_mode_on_background(bool p_auto_enter_o
 		ERR_FAIL_NULL(env);
 		env->CallVoidMethod(godot_native_bridge, _set_auto_enter_pip_mode_on_background, p_auto_enter_on_background);
 	}
+}
+
+bool GodotJavaWrapper::offer_link(const String &p_url) const {
+	if (!_offer_link) {
+		return false;
+	}
+	JNIEnv *env = get_jni_env();
+	ERR_FAIL_NULL_V(env, false);
+	jstring j_url = env->NewStringUTF(p_url.utf8().get_data());
+	jboolean taken = env->CallStaticBooleanMethod(_links_class, _offer_link, j_url);
+	if (env->ExceptionCheck()) {
+		env->ExceptionDescribe();
+		env->ExceptionClear();
+		taken = false;
+	}
+	env->DeleteLocalRef(j_url);
+	return taken;
 }

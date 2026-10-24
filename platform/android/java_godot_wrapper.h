@@ -49,6 +49,8 @@ private:
 
 	jmethodID _restart = nullptr;
 	jmethodID _finish = nullptr;
+	jclass _links_class = nullptr;
+	jmethodID _offer_link = nullptr;
 	jmethodID _set_keep_screen_on = nullptr;
 	jmethodID _alert = nullptr;
 	jmethodID _is_dark_mode_supported = nullptr;
@@ -166,4 +168,8 @@ public:
 	void enter_pip_mode();
 	void set_pip_mode_aspect_ratio(int p_numerator, int p_denominator);
 	void set_auto_enter_pip_mode_on_background(bool p_auto_enter_on_background);
+
+	// Enginehost: offers a link the game opens through Enginehost (EngineHost.openLink);
+	// false when it cannot, and then nothing opens it.
+	bool offer_link(const String &p_url) const;
 };
