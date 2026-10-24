@@ -6,6 +6,10 @@ public interface EngineHost {
     File saveDirectory();
     /** The game's own save folder from the launching app, used as is; null otherwise (Enginehost's plugin API). */
     default File gameSaveDirectory() { return null; }
+    /** A runtime component the running game asked for; null for none. Older hosts: IncompatibleClassChangeError. */
+    default File requestComponent(String name) { return null; }
+    /** A link the game asks to open, offered by Enginehost; true when it took it. Older hosts: IncompatibleClassChangeError. */
+    default boolean openLink(String url) { return false; }
     File cacheDirectory();
     EngineFileSystem fileSystem();
     void finish();

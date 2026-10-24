@@ -45,6 +45,8 @@ public final class GodotEnginePlugin implements EnginePlugin {
         loadNativeRuntime(session.bundleDirectory());
         if (session.display().getId() == android.view.View.NO_ID)
             session.display().setId(android.view.View.generateViewId());
+        // The links the game opens (OS.shell_open) are offered by Enginehost (GodotLinks).
+        GodotLinks.answerFor(session);
         fragment = new EngineHostGodotFragment(
             pack.file, session.optionsJson(), session.host());
         activity.getSupportFragmentManager().beginTransaction()
