@@ -471,7 +471,10 @@ void OS_Android::main_loop_focusin() {
 }
 
 Error OS_Android::shell_open(const String &p_uri) {
-	return godot_io_java->open_uri(p_uri);
+	// Enginehost: a link the game opens is offered to the person by Enginehost, never opened
+	// from here (docs/SPEC.md, "Links a game opens"; Droidtop/tracker#635). When Enginehost
+	// cannot offer it (an older host), it is not opened at all.
+	return godot_java->offer_link(p_uri) ? OK : ERR_UNAVAILABLE;
 }
 
 String OS_Android::get_resource_dir() const {

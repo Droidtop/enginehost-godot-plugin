@@ -48,6 +48,8 @@ private:
 
 	jmethodID _restart = nullptr;
 	jmethodID _finish = nullptr;
+	jclass _links_class = nullptr;
+	jmethodID _offer_link = nullptr;
 	jmethodID _set_keep_screen_on = nullptr;
 	jmethodID _alert = nullptr;
 	jmethodID _is_dark_mode_supported = nullptr;
@@ -152,4 +154,8 @@ public:
 	int build_env_execute(const String &p_build_tool, const List<String> &p_arguments, const String &p_project_path, const String &p_gradle_build_directory, const Callable &p_output_callback, const Callable &p_result_callback);
 	void build_env_cancel(int p_job_id);
 	void build_env_clean_project(const String &p_project_path, const String &p_gradle_build_directory, const Callable &p_callback);
+
+	// Enginehost: offers a link the game opens through Enginehost (EngineHost.openLink);
+	// false when it cannot, and then nothing opens it.
+	bool offer_link(const String &p_url) const;
 };
