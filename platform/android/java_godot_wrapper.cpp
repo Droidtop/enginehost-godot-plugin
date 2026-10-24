@@ -84,6 +84,25 @@ GodotJavaWrapper::GodotJavaWrapper(JNIEnv *p_env, jobject p_activity, jobject p_
 	_dump_benchmark = p_env->GetMethodID(godot_class, "nativeDumpBenchmark", "(Ljava/lang/String;)V");
 	_get_gdextension_list_config_file = p_env->GetMethodID(godot_class, "getGDExtensionConfigFiles", "()[Ljava/lang/String;");
 	_has_feature = p_env->GetMethodID(godot_class, "hasFeature", "(Ljava/lang/String;)Z");
+
+	// Enginehost: a link the game opens (OS.shell_open) goes to the plugin's GodotLinks, which
+	// asks Enginehost to offer it (docs/SPEC.md, "Links a game opens"). Found by name in the
+	// class loader that loaded Godot's classes (the plugin's); absent in a plugin without it.
+	jclass links_class = p_env->FindClass("dev/enginehost/plugin/godot/GodotLinks");
+	if (p_env->ExceptionCheck()) {
+		p_env->ExceptionClear();
+	}
+	if (links_class) {
+		_offer_link = p_env->GetStaticMethodID(links_class, "openLink", "(Ljava/lang/String;)Z");
+		if (p_env->ExceptionCheck()) {
+			p_env->ExceptionClear();
+			_offer_link = nullptr;
+		}
+		if (_offer_link) {
+			_links_class = (jclass)p_env->NewGlobalRef(links_class);
+		}
+		p_env->DeleteLocalRef(links_class);
+	}
 }
 
 GodotJavaWrapper::~GodotJavaWrapper() {
@@ -420,4 +439,21 @@ bool GodotJavaWrapper::has_feature(const String &p_feature) const {
 	} else {
 		return false;
 	}
+}
+
+bool GodotJavaWrapper::offer_link(const String &p_url) const {
+	if (!_offer_link) {
+		return false;
+	}
+	JNIEnv *env = get_jni_env();
+	ERR_FAIL_NULL_V(env, false);
+	jstring j_url = env->NewStringUTF(p_url.utf8().get_data());
+	jboolean taken = env->CallStaticBooleanMethod(_links_class, _offer_link, j_url);
+	if (env->ExceptionCheck()) {
+		env->ExceptionDescribe();
+		env->ExceptionClear();
+		taken = false;
+	}
+	env->DeleteLocalRef(j_url);
+	return taken;
 }

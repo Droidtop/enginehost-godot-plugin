@@ -76,8 +76,83 @@ index ec42e5bbd8c12faa0467c10e3a6d4e3d75918158..28f9c1133dc9e96d9d84223d33f580a7
  
  	const char **cmdline = nullptr;
  	jstring *j_cmdline = nullptr;
+diff --git a/platform/android/java_godot_wrapper.cpp b/platform/android/java_godot_wrapper.cpp
+index 70ea4b09c10ddae015b2f0e47790d69161de3b0d..32eca7875a55a2ab71016f665412437c3af288fd 100644
+--- a/platform/android/java_godot_wrapper.cpp
++++ b/platform/android/java_godot_wrapper.cpp
+@@ -84,6 +84,25 @@ GodotJavaWrapper::GodotJavaWrapper(JNIEnv *p_env, jobject p_activity, jobject p_
+ 	_dump_benchmark = p_env->GetMethodID(godot_class, "nativeDumpBenchmark", "(Ljava/lang/String;)V");
+ 	_get_gdextension_list_config_file = p_env->GetMethodID(godot_class, "getGDExtensionConfigFiles", "()[Ljava/lang/String;");
+ 	_has_feature = p_env->GetMethodID(godot_class, "hasFeature", "(Ljava/lang/String;)Z");
++
++	// Enginehost: a link the game opens (OS.shell_open) goes to the plugin's GodotLinks, which
++	// asks Enginehost to offer it (docs/SPEC.md, "Links a game opens"). Found by name in the
++	// class loader that loaded Godot's classes (the plugin's); absent in a plugin without it.
++	jclass links_class = p_env->FindClass("dev/enginehost/plugin/godot/GodotLinks");
++	if (p_env->ExceptionCheck()) {
++		p_env->ExceptionClear();
++	}
++	if (links_class) {
++		_offer_link = p_env->GetStaticMethodID(links_class, "openLink", "(Ljava/lang/String;)Z");
++		if (p_env->ExceptionCheck()) {
++			p_env->ExceptionClear();
++			_offer_link = nullptr;
++		}
++		if (_offer_link) {
++			_links_class = (jclass)p_env->NewGlobalRef(links_class);
++		}
++		p_env->DeleteLocalRef(links_class);
++	}
+ }
+ 
+ GodotJavaWrapper::~GodotJavaWrapper() {
+@@ -421,3 +440,20 @@ bool GodotJavaWrapper::has_feature(const String &p_feature) const {
+ 		return false;
+ 	}
+ }
++
++bool GodotJavaWrapper::offer_link(const String &p_url) const {
++	if (!_offer_link) {
++		return false;
++	}
++	JNIEnv *env = get_jni_env();
++	ERR_FAIL_NULL_V(env, false);
++	jstring j_url = env->NewStringUTF(p_url.utf8().get_data());
++	jboolean taken = env->CallStaticBooleanMethod(_links_class, _offer_link, j_url);
++	if (env->ExceptionCheck()) {
++		env->ExceptionDescribe();
++		env->ExceptionClear();
++		taken = false;
++	}
++	env->DeleteLocalRef(j_url);
++	return taken;
++}
+diff --git a/platform/android/java_godot_wrapper.h b/platform/android/java_godot_wrapper.h
+index 358cf3261d713d73504240bf6e4dcdb49b770125..b78b5cd543b9f46b2817d174174e5a64f514c060 100644
+--- a/platform/android/java_godot_wrapper.h
++++ b/platform/android/java_godot_wrapper.h
+@@ -51,6 +51,8 @@ private:
+ 
+ 	jmethodID _restart = nullptr;
+ 	jmethodID _finish = nullptr;
++	jclass _links_class = nullptr;
++	jmethodID _offer_link = nullptr;
+ 	jmethodID _set_keep_screen_on = nullptr;
+ 	jmethodID _alert = nullptr;
+ 	jmethodID _is_dark_mode_supported = nullptr;
+@@ -116,6 +118,10 @@ public:
+ 
+ 	// Return true if the given feature is supported.
+ 	bool has_feature(const String &p_feature) const;
++
++	// Enginehost: offers a link the game opens through Enginehost (EngineHost.openLink);
++	// false when it cannot, and then nothing opens it.
++	bool offer_link(const String &p_url) const;
+ };
+ 
+ #endif // JAVA_GODOT_WRAPPER_H
 diff --git a/platform/android/os_android.cpp b/platform/android/os_android.cpp
-index 764959eef358b077f877376da5f307143701c49e..2551cbb1cc3e364b96d81abb247c77da4b27c8fa 100644
+index 764959eef358b077f877376da5f307143701c49e..3133a01edcf332fe2902a79c09dd4b67c522867d 100644
 --- a/platform/android/os_android.cpp
 +++ b/platform/android/os_android.cpp
 @@ -30,6 +30,8 @@
@@ -160,7 +235,19 @@ index 764959eef358b077f877376da5f307143701c49e..2551cbb1cc3e364b96d81abb247c77da
  	return "Android";
  }
  
-@@ -652,6 +692,51 @@ String OS_Android::get_user_data_dir() const {
+@@ -379,7 +419,10 @@ void OS_Android::main_loop_focusin() {
+ }
+ 
+ Error OS_Android::shell_open(const String &p_uri) {
+-	return godot_io_java->open_uri(p_uri);
++	// Enginehost: a link the game opens is offered to the person by Enginehost, never opened
++	// from here (docs/SPEC.md, "Links a game opens"; Droidtop/tracker#635). When Enginehost
++	// cannot offer it (an older host), it is not opened at all.
++	return godot_java->offer_link(p_uri) ? OK : ERR_UNAVAILABLE;
+ }
+ 
+ String OS_Android::get_resource_dir() const {
+@@ -652,6 +695,51 @@ String OS_Android::get_user_data_dir() const {
  		return data_dir_cache;
  	}
  
@@ -212,7 +299,7 @@ index 764959eef358b077f877376da5f307143701c49e..2551cbb1cc3e364b96d81abb247c77da
  	String data_dir = godot_io_java->get_user_data_dir();
  	if (!data_dir.is_empty()) {
  		data_dir_cache = _remove_symlink(data_dir);
-@@ -776,6 +861,29 @@ void OS_Android::benchmark_dump() {
+@@ -776,6 +864,29 @@ void OS_Android::benchmark_dump() {
  }
  
  bool OS_Android::_check_internal_feature_support(const String &p_feature) {
