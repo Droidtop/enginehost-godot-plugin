@@ -51,6 +51,8 @@ private:
 	jmethodID _on_video_init = nullptr;
 	jmethodID _restart = nullptr;
 	jmethodID _finish = nullptr;
+	jclass _links_class = nullptr;
+	jmethodID _offer_link = nullptr;
 	jmethodID _set_keep_screen_on = nullptr;
 	jmethodID _alert = nullptr;
 	jmethodID _get_GLES_version_code = nullptr;
@@ -104,6 +106,10 @@ public:
 	void vibrate(int p_duration_ms);
 	String get_input_fallback_mapping();
 	int create_new_godot_instance(List<String> args);
+
+	// Enginehost: offers a link the game opens through Enginehost (EngineHost.openLink);
+	// false when it cannot, and then nothing opens it.
+	bool offer_link(const String &p_url) const;
 };
 
 #endif // JAVA_GODOT_WRAPPER_H
