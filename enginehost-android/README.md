@@ -181,6 +181,14 @@ range carries. They are applied when a line is composed, before the line's own p
   Enginehost holds all-files access and hands the engine real paths, so the Java handler's
   `content://` support is never needed there. This replaces
   4.5's Java-side read-ahead, which could not help: each read still crossed JNI.
+- **A link the game opens is offered by Enginehost** (every line, in its own patch).
+  `OS_Android::shell_open` no longer calls Godot's Java `open_uri`, which opened the link at
+  once. It calls the plugin's `GodotLinks.openLink` (looked up by name in
+  `java_godot_wrapper.cpp`, since Godot's Java side is the stock AAR), which hands it to
+  `EngineHost.openLink`. Enginehost checks the link, says what it is (a Discord invite, a web
+  page...) and offers to open it, in the app it belongs to or a browser, or to copy it; it never
+  opens one by itself (Enginehost docs/SPEC.md, "Links a game opens"; Droidtop/tracker#635). On an
+  Enginehost older than `openLink`, `shell_open` answers `ERR_UNAVAILABLE` and nothing opens.
 - **A missing class is asked for** (`4.5-components` for now, in its own patch). When a game
   names a class neither the engine nor its own scripts define (a scene's `SpineSprite`, a
   script's `extends SpineSprite`), `ClassDB` asks a handler before answering no, outside its
