@@ -51,6 +51,8 @@ private:
 
 	jmethodID _restart = nullptr;
 	jmethodID _finish = nullptr;
+	jclass _links_class = nullptr;
+	jmethodID _offer_link = nullptr;
 	jmethodID _set_keep_screen_on = nullptr;
 	jmethodID _alert = nullptr;
 	jmethodID _is_dark_mode_supported = nullptr;
@@ -114,6 +116,10 @@ public:
 
 	// Return true if the given feature is supported.
 	bool has_feature(const String &p_feature) const;
+
+	// Enginehost: offers a link the game opens through Enginehost (EngineHost.openLink);
+	// false when it cannot, and then nothing opens it.
+	bool offer_link(const String &p_url) const;
 };
 
 #endif // JAVA_GODOT_WRAPPER_H
