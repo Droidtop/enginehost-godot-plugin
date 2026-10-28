@@ -2,7 +2,7 @@
   "kind": "component",
   "bundleId": "dev.enginehost.godot.component.spine-godot.v42",
   "engine": "godot",
-  "pluginVersion": "0.9.0",
+  "pluginVersion": "0.9.1",
   "apiVersion": 1,
   "origin": "https://github.com/droidtop/enginehost-godot-plugin",
   "component": {
