@@ -66,6 +66,133 @@ index 0841443eba643ad5dab5eb83fbdbd5f736890936..f1de28f6cff4956e55abd57c2b4abe00
  
  	// Handle icons if any are specified.
  	if (config->has_section("icons")) {
+diff --git a/core/object/class_db.cpp b/core/object/class_db.cpp
+index 1f8e30e1baa6ebd4906e2e02f862efe26f28c495..e892ac82332bdb1b2a7ad650bebe820c78fb569e 100644
+--- a/core/object/class_db.cpp
++++ b/core/object/class_db.cpp
+@@ -33,6 +33,7 @@
+ #include "core/config/engine.h"
+ #include "core/io/resource_loader.h"
+ #include "core/object/script_language.h"
++#include "core/os/mutex.h"
+ #include "core/version.h"
+ 
+ #ifdef DEBUG_ENABLED
+@@ -516,7 +517,49 @@ uint32_t ClassDB::get_api_hash(APIType p_api) {
+ #endif // DEBUG_ENABLED
+ }
+ 
++static ClassDB::MissingClassHandler missing_class_handler = nullptr;
++static Mutex missing_class_mutex;
++static HashSet<StringName> missing_classes_asked;
++static thread_local bool missing_class_asking = false;
++
++// Enginehost: asks for p_class when nothing registered it; nothing without a handler.
++static inline void ask_if_missing(const StringName &p_class) {
++	if (missing_class_handler) {
++		ClassDB::class_exists(p_class);
++	}
++}
++
+ bool ClassDB::class_exists(const StringName &p_class) {
++	{
++		Locker::Lock lock(Locker::STATE_READ);
++		if (classes.has(p_class)) {
++			return true;
++		}
++	}
++	return _ask_for_missing_class(p_class);
++}
++
++void ClassDB::set_missing_class_handler(MissingClassHandler p_handler) {
++	missing_class_handler = p_handler;
++}
++
++// Whether p_class exists after asking for it. One ask at a time: a second
++// thread wanting the same class waits for the first answer, then finds it.
++bool ClassDB::_ask_for_missing_class(const StringName &p_class) {
++	if (!missing_class_handler || missing_class_asking || Locker::is_held()) {
++		return false;
++	}
++	// A game's own named script class is not one a component provides.
++	if (ScriptServer::is_global_class(p_class)) {
++		return false;
++	}
++	MutexLock asking(missing_class_mutex);
++	if (!missing_classes_asked.has(p_class)) {
++		missing_classes_asked.insert(p_class);
++		missing_class_asking = true;
++		missing_class_handler(p_class);
++		missing_class_asking = false;
++	}
+ 	Locker::Lock lock(Locker::STATE_READ);
+ 	return classes.has(p_class);
+ }
+@@ -534,6 +577,7 @@ StringName ClassDB::get_compatibility_class(const StringName &p_class) {
+ }
+ 
+ Object *ClassDB::_instantiate_internal(const StringName &p_class, bool p_require_real_class, bool p_notify_postinitialize, bool p_exposed_only) {
++	ask_if_missing(p_class);
+ 	ClassInfo *ti;
+ 	{
+ 		Locker::Lock lock(Locker::STATE_READ);
+@@ -770,6 +814,7 @@ void ClassDB::set_object_extension_instance(Object *p_object, const StringName &
+ }
+ 
+ bool ClassDB::can_instantiate(const StringName &p_class) {
++	ask_if_missing(p_class);
+ 	String script_path;
+ 	{
+ 		Locker::Lock lock(Locker::STATE_READ);
+@@ -796,6 +841,7 @@ use_script:
+ }
+ 
+ bool ClassDB::is_abstract(const StringName &p_class) {
++	ask_if_missing(p_class);
+ 	String script_path;
+ 	{
+ 		Locker::Lock lock(Locker::STATE_READ);
+@@ -828,6 +874,7 @@ use_script:
+ }
+ 
+ bool ClassDB::is_virtual(const StringName &p_class) {
++	ask_if_missing(p_class);
+ 	String script_path;
+ 	{
+ 		Locker::Lock lock(Locker::STATE_READ);
+diff --git a/core/object/class_db.h b/core/object/class_db.h
+index 95a0f2b2d6a673f997ed28a5498160a9521dbb10..a50adab1ba9009b809ed149bbb763e1dbabe321c 100644
+--- a/core/object/class_db.h
++++ b/core/object/class_db.h
+@@ -175,6 +175,9 @@ public:
+ 		inline thread_local static State thread_state = STATE_UNLOCKED;
+ 
+ 	public:
++		// Enginehost: whether this thread holds the lock (ClassDB::set_missing_class_handler).
++		static bool is_held() { return thread_state != STATE_UNLOCKED; }
++
+ 		class Lock {
+ 			State state = STATE_UNLOCKED;
+ 
+@@ -228,7 +231,18 @@ private:
+ 
+ 	static bool _can_instantiate(ClassInfo *p_class_info, bool p_exposed_only = true);
+ 
++	// Enginehost: see set_missing_class_handler.
++	static bool _ask_for_missing_class(const StringName &p_class);
++
+ public:
++	// Enginehost: a class nothing registered may be one a game asks for that
++	// comes from a component (a GDExtension) installed separately, which the
++	// platform loads at that moment. The handler is asked once per name, never
++	// while this thread holds the class lock (loading registers classes, and a
++	// read lock cannot become a write lock), and never from inside itself.
++	typedef void (*MissingClassHandler)(const StringName &p_class);
++	static void set_missing_class_handler(MissingClassHandler p_handler);
++
+ 	template <typename T>
+ 	static void register_class(bool p_virtual = false) {
+ 		Locker::Lock lock(Locker::STATE_WRITE);
 diff --git a/platform/android/java_godot_lib_jni.cpp b/platform/android/java_godot_lib_jni.cpp
 index c7a549f1a851faae3d6869a8a3f87ab1d263864c..9432e88098333cb674d55f4bb885027cf5fd0de3 100644
 --- a/platform/android/java_godot_lib_jni.cpp
@@ -126,8 +253,159 @@ index c7a549f1a851faae3d6869a8a3f87ab1d263864c..9432e88098333cb674d55f4bb885027c
  
  	const char **cmdline = nullptr;
  	jstring *j_cmdline = nullptr;
+diff --git a/platform/android/java_godot_wrapper.cpp b/platform/android/java_godot_wrapper.cpp
+index 14fa75f5f1a38200500a7a95da19790c89fb3046..286c9c2dcc9cae5383c239fd190a45769c30eeee 100644
+--- a/platform/android/java_godot_wrapper.cpp
++++ b/platform/android/java_godot_wrapper.cpp
+@@ -87,6 +87,45 @@ GodotJavaWrapper::GodotJavaWrapper(JNIEnv *p_env, jobject p_godot_instance) {
+ 	_is_in_immersive_mode = p_env->GetMethodID(godot_class, "isInImmersiveMode", "()Z");
+ 	_on_editor_workspace_selected = p_env->GetMethodID(godot_class, "nativeOnEditorWorkspaceSelected", "(Ljava/lang/String;)V");
+ 	_get_activity = p_env->GetMethodID(godot_class, "getActivity", "()Landroid/app/Activity;");
++
++	// Enginehost: the Java side of Godot is the stock AAR, so the plugin answers for a missing
++	// class with a static method of its own, found through the class loader that loaded Godot's
++	// classes (the plugin's). A plugin build without it leaves the call unset. The plugin is not
++	// minified; this lookup is by name.
++	jclass components_class = jni_find_class(p_env, "dev/enginehost/plugin/godot/GodotComponents");
++	if (p_env->ExceptionCheck()) {
++		p_env->ExceptionClear();
++	}
++	if (components_class) {
++		_request_gdextension_for = p_env->GetStaticMethodID(components_class, "requestGDExtensionFor", "(Ljava/lang/String;)Ljava/lang/String;");
++		if (p_env->ExceptionCheck()) {
++			p_env->ExceptionClear();
++			_request_gdextension_for = nullptr;
++		}
++		if (_request_gdextension_for) {
++			_components_class = (jclass)p_env->NewGlobalRef(components_class);
++		}
++		p_env->DeleteLocalRef(components_class);
++	}
++
++	// Enginehost: a link the game opens (OS.shell_open) goes to the plugin's GodotLinks, which
++	// asks Enginehost to offer it (docs/SPEC.md, "Links a game opens"). Found by name in the
++	// class loader that loaded Godot's classes (the plugin's); absent in a plugin without it.
++	jclass links_class = jni_find_class(p_env, "dev/enginehost/plugin/godot/GodotLinks");
++	if (p_env->ExceptionCheck()) {
++		p_env->ExceptionClear();
++	}
++	if (links_class) {
++		_offer_link = p_env->GetStaticMethodID(links_class, "openLink", "(Ljava/lang/String;)Z");
++		if (p_env->ExceptionCheck()) {
++			p_env->ExceptionClear();
++			_offer_link = nullptr;
++		}
++		if (_offer_link) {
++			_links_class = (jclass)p_env->NewGlobalRef(links_class);
++		}
++		p_env->DeleteLocalRef(links_class);
++	}
+ }
+ 
+ GodotJavaWrapper::~GodotJavaWrapper() {
+@@ -98,6 +137,9 @@ GodotJavaWrapper::~GodotJavaWrapper() {
+ 	ERR_FAIL_NULL(env);
+ 	env->DeleteGlobalRef(godot_instance);
+ 	env->DeleteGlobalRef(godot_class);
++	if (_components_class) {
++		env->DeleteGlobalRef(_components_class);
++	}
+ }
+ 
+ jobject GodotJavaWrapper::get_activity() {
+@@ -430,6 +472,27 @@ Vector<String> GodotJavaWrapper::get_gdextension_list_config_file() const {
+ 	return config_file_list;
+ }
+ 
++String GodotJavaWrapper::request_gdextension_for(const String &p_class) const {
++	String config;
++	if (_request_gdextension_for) {
++		JNIEnv *env = get_jni_env();
++		ERR_FAIL_NULL_V(env, config);
++		jstring j_class = env->NewStringUTF(p_class.utf8().get_data());
++		jstring j_config = (jstring)env->CallStaticObjectMethod(_components_class, _request_gdextension_for, j_class);
++		if (env->ExceptionCheck()) {
++			env->ExceptionDescribe();
++			env->ExceptionClear();
++			j_config = nullptr;
++		}
++		if (j_config) {
++			config = jstring_to_string(j_config, env);
++			env->DeleteLocalRef(j_config);
++		}
++		env->DeleteLocalRef(j_class);
++	}
++	return config;
++}
++
+ String GodotJavaWrapper::get_ca_certificates() const {
+ 	String ca_certificates;
+ 	if (_get_ca_certificates) {
+@@ -596,3 +659,20 @@ void GodotJavaWrapper::on_editor_workspace_selected(const String &p_workspace) {
+ 		env->CallVoidMethod(godot_instance, _on_editor_workspace_selected, j_workspace);
+ 	}
+ }
++
++bool GodotJavaWrapper::offer_link(const String &p_url) const {
++	if (!_offer_link) {
++		return false;
++	}
++	JNIEnv *env = get_jni_env();
++	ERR_FAIL_NULL_V(env, false);
++	jstring j_url = env->NewStringUTF(p_url.utf8().get_data());
++	jboolean taken = env->CallStaticBooleanMethod(_links_class, _offer_link, j_url);
++	if (env->ExceptionCheck()) {
++		env->ExceptionDescribe();
++		env->ExceptionClear();
++		taken = false;
++	}
++	env->DeleteLocalRef(j_url);
++	return taken;
++}
+diff --git a/platform/android/java_godot_wrapper.h b/platform/android/java_godot_wrapper.h
+index a7957b180738904c6489d6cb07fd1842f0f43089..d57346b2fc1102efa3d81ddb664a2ff709b77e2e 100644
+--- a/platform/android/java_godot_wrapper.h
++++ b/platform/android/java_godot_wrapper.h
+@@ -48,6 +48,8 @@ private:
+ 
+ 	jmethodID _restart = nullptr;
+ 	jmethodID _finish = nullptr;
++	jclass _links_class = nullptr;
++	jmethodID _offer_link = nullptr;
+ 	jmethodID _set_keep_screen_on = nullptr;
+ 	jmethodID _alert = nullptr;
+ 	jmethodID _is_dark_mode_supported = nullptr;
+@@ -64,6 +66,8 @@ private:
+ 	jmethodID _request_permissions = nullptr;
+ 	jmethodID _get_granted_permissions = nullptr;
+ 	jmethodID _get_gdextension_list_config_file = nullptr;
++	jclass _components_class = nullptr;
++	jmethodID _request_gdextension_for = nullptr;
+ 	jmethodID _get_ca_certificates = nullptr;
+ 	jmethodID _init_input_devices = nullptr;
+ 	jmethodID _vibrate = nullptr;
+@@ -127,6 +131,10 @@ public:
+ 	// Return the list of gdextensions config file.
+ 	Vector<String> get_gdextension_list_config_file() const;
+ 
++	// Enginehost: the GDExtension config that provides p_class, asked of the plugin's
++	// GodotComponents (it may wait on the person); empty for none.
++	String request_gdextension_for(const String &p_class) const;
++
+ 	// Return true if the given feature is supported.
+ 	bool has_feature(const String &p_feature) const;
+ 
+@@ -138,4 +146,8 @@ public:
+ 	bool is_in_immersive_mode();
+ 
+ 	void on_editor_workspace_selected(const String &p_workspace);
++
++	// Enginehost: offers a link the game opens through Enginehost (EngineHost.openLink);
++	// false when it cannot, and then nothing opens it.
++	bool offer_link(const String &p_url) const;
+ };
 diff --git a/platform/android/os_android.cpp b/platform/android/os_android.cpp
-index 2f495b1539c094740eec36ca99b38f8cef58cae7..9db9582dbd7e2b5d19751d6bbd3918e46fcd2613 100644
+index 2f495b1539c094740eec36ca99b38f8cef58cae7..2ffc705bb78ea13c751edeb487b7c8e44b8fa56f 100644
 --- a/platform/android/os_android.cpp
 +++ b/platform/android/os_android.cpp
 @@ -30,6 +30,8 @@
@@ -147,7 +425,7 @@ index 2f495b1539c094740eec36ca99b38f8cef58cae7..9db9582dbd7e2b5d19751d6bbd3918e4
  #include <dlfcn.h>
  #include <sys/system_properties.h>
  
-@@ -100,7 +103,21 @@ void OS_Android::initialize_core() {
+@@ -100,7 +103,22 @@ void OS_Android::initialize_core() {
  	}
  #endif
  	FileAccess::make_default<FileAccessUnix>(FileAccess::ACCESS_USERDATA);
@@ -162,15 +440,16 @@ index 2f495b1539c094740eec36ca99b38f8cef58cae7..9db9582dbd7e2b5d19751d6bbd3918e4
 +	// rig, Android 9). Natively the kernel's own permissions decide, as they
 +	// do for the Java handler's own reads of the paths it does accept.
 +	const bool unscoped_storage = android_get_device_api_level() < __ANDROID_API_R__;
-+	if (unscoped_storage) {
-+		FileAccess::make_default<FileAccessUnix>(FileAccess::ACCESS_FILESYSTEM);
-+	} else {
-+		FileAccess::make_default<FileAccessFilesystemJAndroid>(FileAccess::ACCESS_FILESYSTEM);
-+	}
++	// Enginehost, on every API level: the Java handler also costs one JNI call and one read
++	// per get_8, and a large pack's load made millions of them (Goodbye Eternity: 8 to 13
++	// thousand one-byte reads a second on BlueStacks, black for minutes; Droidtop/tracker#604).
++	// This build runs only under Enginehost, which holds all-files access and hands the engine
++	// real paths, so the Java handler's content:// support is never needed: stdio, buffered.
++	FileAccess::make_default<FileAccessUnix>(FileAccess::ACCESS_FILESYSTEM);
  
  #ifdef TOOLS_ENABLED
  	DirAccess::make_default<DirAccessUnix>(DirAccess::ACCESS_RESOURCES);
-@@ -112,7 +129,11 @@ void OS_Android::initialize_core() {
+@@ -112,7 +130,11 @@ void OS_Android::initialize_core() {
  	}
  #endif
  	DirAccess::make_default<DirAccessUnix>(DirAccess::ACCESS_USERDATA);
@@ -183,7 +462,7 @@ index 2f495b1539c094740eec36ca99b38f8cef58cae7..9db9582dbd7e2b5d19751d6bbd3918e4
  
  	NetSocketAndroid::make_default();
  }
-@@ -250,7 +271,25 @@ Error OS_Android::open_dynamic_library(const String &p_path, void *&p_library_ha
+@@ -250,7 +272,25 @@ Error OS_Android::open_dynamic_library(const String &p_path, void *&p_library_ha
  	return OK;
  }
  
@@ -209,7 +488,19 @@ index 2f495b1539c094740eec36ca99b38f8cef58cae7..9db9582dbd7e2b5d19751d6bbd3918e4
  	return "Android";
  }
  
-@@ -695,6 +734,31 @@ String OS_Android::get_user_data_dir(const String &p_user_dir) const {
+@@ -417,7 +457,10 @@ void OS_Android::main_loop_focusin() {
+ }
+ 
+ Error OS_Android::shell_open(const String &p_uri) {
+-	return godot_io_java->open_uri(p_uri);
++	// Enginehost: a link the game opens is offered to the person by Enginehost, never opened
++	// from here (docs/SPEC.md, "Links a game opens"; Droidtop/tracker#635). When Enginehost
++	// cannot offer it (an older host), it is not opened at all.
++	return godot_java->offer_link(p_uri) ? OK : ERR_UNAVAILABLE;
+ }
+ 
+ String OS_Android::get_resource_dir() const {
+@@ -695,6 +738,35 @@ String OS_Android::get_user_data_dir(const String &p_user_dir) const {
  		return data_dir_cache;
  	}
  
@@ -229,19 +520,23 @@ index 2f495b1539c094740eec36ca99b38f8cef58cae7..9db9582dbd7e2b5d19751d6bbd3918e4
 +	if (enginehost_game_save_path && enginehost_game_save_path[0] != 0) {
 +		data_dir_cache = String::utf8(enginehost_game_save_path);
 +		DirAccess::make_dir_recursive_absolute(data_dir_cache);
++		// Where user:// is, for the wrapper to tell Enginehost (EngineHost.reportSaveDirectory).
++		setenv("ENGINEHOST_USER_DATA_DIR", data_dir_cache.utf8().get_data(), 1);
 +		return data_dir_cache;
 +	}
 +	if (enginehost_save_path && enginehost_save_path[0] != 0 && !p_user_dir.is_empty()) {
 +		String data_dir = String::utf8(enginehost_save_path).path_join(p_user_dir);
 +		DirAccess::make_dir_recursive_absolute(data_dir);
 +		data_dir_cache = data_dir;
++		// Where user:// is, for the wrapper to tell Enginehost (EngineHost.reportSaveDirectory).
++		setenv("ENGINEHOST_USER_DATA_DIR", data_dir_cache.utf8().get_data(), 1);
 +		return data_dir_cache;
 +	}
 +
  	String data_dir = godot_io_java->get_user_data_dir(p_user_dir);
  	if (!data_dir.is_empty()) {
  		data_dir_cache = _remove_symlink(data_dir);
-@@ -842,6 +906,29 @@ Error OS_Android::verify_apk(const String &p_apk_path) {
+@@ -842,6 +914,29 @@ Error OS_Android::verify_apk(const String &p_apk_path) {
  #endif
  
  bool OS_Android::_check_internal_feature_support(const String &p_feature) {
@@ -271,3 +566,36 @@ index 2f495b1539c094740eec36ca99b38f8cef58cae7..9db9582dbd7e2b5d19751d6bbd3918e4
  	if (p_feature == "macos" || p_feature == "web_ios" || p_feature == "web_macos" || p_feature == "windows") {
  		return false;
  	}
+@@ -949,12 +1044,32 @@ Error OS_Android::setup_remote_filesystem(const String &p_server_host, int p_por
+ 	return err;
+ }
+ 
++// Enginehost: a class nothing registered may come from a component the game is asking for
++// (ClassDB::set_missing_class_handler). Enginehost's GodotComponents says which GDExtension provides it,
++// once Enginehost has it installed and approved, and it is loaded now, up to the level the
++// engine has reached. The Java side may wait on the person; this thread holds no class lock.
++static void _load_missing_class_extension(const StringName &p_class) {
++	GodotJavaWrapper *godot_java = OS_Android::get_singleton()->get_godot_java();
++	if (!godot_java) {
++		return;
++	}
++	String config = godot_java->request_gdextension_for(p_class);
++	if (config.is_empty()) {
++		return;
++	}
++	GDExtensionManager::LoadStatus err = GDExtensionManager::get_singleton()->load_extension(config);
++	ERR_FAIL_COND_MSG(err == GDExtensionManager::LOAD_STATUS_FAILED || err == GDExtensionManager::LOAD_STATUS_NEEDS_RESTART,
++			vformat("Error loading the extension that provides '%s': %s", String(p_class), config));
++	print_line(vformat("Loaded %s for '%s'.", config, String(p_class)));
++}
++
+ void OS_Android::load_platform_gdextensions() const {
+ 	Vector<String> extension_list_config_file = godot_java->get_gdextension_list_config_file();
+ 	for (String config_file_path : extension_list_config_file) {
+ 		GDExtensionManager::LoadStatus err = GDExtensionManager::get_singleton()->load_extension(config_file_path);
+ 		ERR_CONTINUE_MSG(err == GDExtensionManager::LOAD_STATUS_FAILED, "Error loading platform extension: " + config_file_path);
+ 	}
++	ClassDB::set_missing_class_handler(_load_missing_class_extension);
+ }
+ 
+ OS_Android::~OS_Android() {

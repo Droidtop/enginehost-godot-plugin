@@ -14,6 +14,7 @@ public final class GodotEnginePlugin implements EnginePlugin {
     /** The bundle payload carrying this plugin's compiled resources. */
 
     private EngineHostGodotFragment fragment;
+    private dev.enginehost.api.EngineHost host;
 
     @Override public void onCreate(EnginePluginSession session) throws Exception {
         if (!"godot".equals(session.engine()) || !"standard".equals(session.engineContext()))
@@ -32,6 +33,10 @@ public final class GodotEnginePlugin implements EnginePlugin {
         // Before the engine exists, so a component that cannot be found fails
         // as a startup error instead of a game without it.
         java.util.Set<String> components = GodotComponents.configs(session);
+        // And what the game asks for while it runs, on a line whose engine asks.
+        GodotComponents.answerRequests(session);
+        // And the links it opens (OS.shell_open), offered by Enginehost.
+        GodotLinks.answerFor(session);
         // Where user:// goes: the save folder the person chose in Enginehost.
         // The engine reads this in OS_Android::get_user_data_dir and puts the
         // project's own user directory inside it, as it does on a desktop.
@@ -66,6 +71,8 @@ public final class GodotEnginePlugin implements EnginePlugin {
             throw new IOException(GodotEngineLog.failureMessage(refused.getMessage()), refused);
         }
         if (!fragment.engineStarted()) throw new IOException(GodotEngineLog.failureMessage(null));
+        host = session.host();
+        reportSaveDirectory();
     }
 
     /**
@@ -209,8 +216,32 @@ public final class GodotEnginePlugin implements EnginePlugin {
         throw missing == null ? new IOException("Device reports no supported ABIs") : missing;
     }
 
+    @Override public void onPause() {
+        reportSaveDirectory();
+    }
+
     @Override public void onDestroy() {
+        reportSaveDirectory();
         fragment = null;
+    }
+
+    /**
+     * Tells Enginehost where user:// is, as the engine resolved it
+     * (OS_Android::get_user_data_dir exports it as ENGINEHOST_USER_DATA_DIR):
+     * godot/app_userdata/<project> or the project's custom user dir inside the
+     * save folder, which only the engine can name. Said after start, and again
+     * when the game is left, as an engine may resolve it only on its first
+     * frame. Nothing on an engine build that does not export it, or on an
+     * Enginehost too old to record it.
+     */
+    private void reportSaveDirectory() {
+        String userDir = android.system.Os.getenv("ENGINEHOST_USER_DATA_DIR");
+        if (host == null || userDir == null || userDir.isEmpty()) return;
+        try {
+            host.reportSaveDirectory(new java.io.File(userDir));
+        } catch (IncompatibleClassChangeError olderHost) {
+            // Nothing to record it with.
+        }
     }
 
     /** The game's own save folder from the launching app, or null, also on an Enginehost too old to know it. */

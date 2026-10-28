@@ -76,8 +76,83 @@ index 50075ed3f5e91d02fe17e6facc6cb9b23684a4d8..e1dc68e55d1de1d5c795166daac23e5d
  
  	const char **cmdline = nullptr;
  	jstring *j_cmdline = nullptr;
+diff --git a/platform/android/java_godot_wrapper.cpp b/platform/android/java_godot_wrapper.cpp
+index cb6ebf14a83203aa07631e715e78f20481bbc3b0..19b32182141f1df446ec5cbc09ffdebe66a98067 100644
+--- a/platform/android/java_godot_wrapper.cpp
++++ b/platform/android/java_godot_wrapper.cpp
+@@ -83,6 +83,25 @@ GodotJavaWrapper::GodotJavaWrapper(JNIEnv *p_env, jobject p_activity, jobject p_
+ 	_dump_benchmark = p_env->GetMethodID(godot_class, "nativeDumpBenchmark", "(Ljava/lang/String;)V");
+ 	_get_gdextension_list_config_file = p_env->GetMethodID(godot_class, "getGDExtensionConfigFiles", "()[Ljava/lang/String;");
+ 	_has_feature = p_env->GetMethodID(godot_class, "hasFeature", "(Ljava/lang/String;)Z");
++
++	// Enginehost: a link the game opens (OS.shell_open) goes to the plugin's GodotLinks, which
++	// asks Enginehost to offer it (docs/SPEC.md, "Links a game opens"). Found by name in the
++	// class loader that loaded Godot's classes (the plugin's); absent in a plugin without it.
++	jclass links_class = p_env->FindClass("dev/enginehost/plugin/godot/GodotLinks");
++	if (p_env->ExceptionCheck()) {
++		p_env->ExceptionClear();
++	}
++	if (links_class) {
++		_offer_link = p_env->GetStaticMethodID(links_class, "openLink", "(Ljava/lang/String;)Z");
++		if (p_env->ExceptionCheck()) {
++			p_env->ExceptionClear();
++			_offer_link = nullptr;
++		}
++		if (_offer_link) {
++			_links_class = (jclass)p_env->NewGlobalRef(links_class);
++		}
++		p_env->DeleteLocalRef(links_class);
++	}
+ }
+ 
+ GodotJavaWrapper::~GodotJavaWrapper() {
+@@ -386,3 +405,20 @@ bool GodotJavaWrapper::has_feature(const String &p_feature) const {
+ 		return false;
+ 	}
+ }
++
++bool GodotJavaWrapper::offer_link(const String &p_url) const {
++	if (!_offer_link) {
++		return false;
++	}
++	JNIEnv *env = get_jni_env();
++	ERR_FAIL_NULL_V(env, false);
++	jstring j_url = env->NewStringUTF(p_url.utf8().get_data());
++	jboolean taken = env->CallStaticBooleanMethod(_links_class, _offer_link, j_url);
++	if (env->ExceptionCheck()) {
++		env->ExceptionDescribe();
++		env->ExceptionClear();
++		taken = false;
++	}
++	env->DeleteLocalRef(j_url);
++	return taken;
++}
+diff --git a/platform/android/java_godot_wrapper.h b/platform/android/java_godot_wrapper.h
+index 920df958c240d761fb392638d718b17d69ea085f..90c51e064c362d433ec08c6ff4ef60791a29710f 100644
+--- a/platform/android/java_godot_wrapper.h
++++ b/platform/android/java_godot_wrapper.h
+@@ -51,6 +51,8 @@ private:
+ 
+ 	jmethodID _restart = nullptr;
+ 	jmethodID _finish = nullptr;
++	jclass _links_class = nullptr;
++	jmethodID _offer_link = nullptr;
+ 	jmethodID _set_keep_screen_on = nullptr;
+ 	jmethodID _alert = nullptr;
+ 	jmethodID _is_dark_mode_supported = nullptr;
+@@ -114,6 +116,10 @@ public:
+ 
+ 	// Return true if the given feature is supported.
+ 	bool has_feature(const String &p_feature) const;
++
++	// Enginehost: offers a link the game opens through Enginehost (EngineHost.openLink);
++	// false when it cannot, and then nothing opens it.
++	bool offer_link(const String &p_url) const;
+ };
+ 
+ #endif // JAVA_GODOT_WRAPPER_H
 diff --git a/platform/android/os_android.cpp b/platform/android/os_android.cpp
-index 92dc5f909f63fab8a48e0389ac35c14c97c9600c..587000540673024814c101d8fd842721d11405f3 100644
+index 92dc5f909f63fab8a48e0389ac35c14c97c9600c..2ad366cfc72c307b8a23915fab173b1104dfeaea 100644
 --- a/platform/android/os_android.cpp
 +++ b/platform/android/os_android.cpp
 @@ -30,6 +30,8 @@
@@ -97,7 +172,7 @@ index 92dc5f909f63fab8a48e0389ac35c14c97c9600c..587000540673024814c101d8fd842721
  #include <dlfcn.h>
  #include <sys/system_properties.h>
  
-@@ -96,7 +99,21 @@ void OS_Android::initialize_core() {
+@@ -96,7 +99,22 @@ void OS_Android::initialize_core() {
  	}
  #endif
  	FileAccess::make_default<FileAccessUnix>(FileAccess::ACCESS_USERDATA);
@@ -112,15 +187,16 @@ index 92dc5f909f63fab8a48e0389ac35c14c97c9600c..587000540673024814c101d8fd842721
 +	// rig, Android 9). Natively the kernel's own permissions decide, as they
 +	// do for the Java handler's own reads of the paths it does accept.
 +	const bool unscoped_storage = android_get_device_api_level() < __ANDROID_API_R__;
-+	if (unscoped_storage) {
-+		FileAccess::make_default<FileAccessUnix>(FileAccess::ACCESS_FILESYSTEM);
-+	} else {
-+		FileAccess::make_default<FileAccessFilesystemJAndroid>(FileAccess::ACCESS_FILESYSTEM);
-+	}
++	// Enginehost, on every API level: the Java handler also costs one JNI call and one read
++	// per get_8, and a large pack's load made millions of them (Goodbye Eternity: 8 to 13
++	// thousand one-byte reads a second on BlueStacks, black for minutes; Droidtop/tracker#604).
++	// This build runs only under Enginehost, which holds all-files access and hands the engine
++	// real paths, so the Java handler's content:// support is never needed: stdio, buffered.
++	FileAccess::make_default<FileAccessUnix>(FileAccess::ACCESS_FILESYSTEM);
  
  #ifdef TOOLS_ENABLED
  	DirAccess::make_default<DirAccessUnix>(DirAccess::ACCESS_RESOURCES);
-@@ -108,7 +125,11 @@ void OS_Android::initialize_core() {
+@@ -108,7 +126,11 @@ void OS_Android::initialize_core() {
  	}
  #endif
  	DirAccess::make_default<DirAccessUnix>(DirAccess::ACCESS_USERDATA);
@@ -133,7 +209,7 @@ index 92dc5f909f63fab8a48e0389ac35c14c97c9600c..587000540673024814c101d8fd842721
  
  	NetSocketAndroid::make_default();
  }
-@@ -206,7 +227,25 @@ Error OS_Android::open_dynamic_library(const String p_path, void *&p_library_han
+@@ -206,7 +228,25 @@ Error OS_Android::open_dynamic_library(const String p_path, void *&p_library_han
  	return OK;
  }
  
@@ -159,7 +235,19 @@ index 92dc5f909f63fab8a48e0389ac35c14c97c9600c..587000540673024814c101d8fd842721
  	return "Android";
  }
  
-@@ -606,6 +645,47 @@ String OS_Android::get_user_data_dir() const {
+@@ -333,7 +373,10 @@ void OS_Android::main_loop_focusin() {
+ }
+ 
+ Error OS_Android::shell_open(String p_uri) {
+-	return godot_io_java->open_uri(p_uri);
++	// Enginehost: a link the game opens is offered to the person by Enginehost, never opened
++	// from here (docs/SPEC.md, "Links a game opens"; Droidtop/tracker#635). When Enginehost
++	// cannot offer it (an older host), it is not opened at all.
++	return godot_java->offer_link(p_uri) ? OK : ERR_UNAVAILABLE;
+ }
+ 
+ String OS_Android::get_resource_dir() const {
+@@ -606,6 +649,51 @@ String OS_Android::get_user_data_dir() const {
  		return data_dir_cache;
  	}
  
@@ -179,6 +267,8 @@ index 92dc5f909f63fab8a48e0389ac35c14c97c9600c..587000540673024814c101d8fd842721
 +	if (enginehost_game_save_path && enginehost_game_save_path[0] != 0) {
 +		data_dir_cache = String::utf8(enginehost_game_save_path);
 +		DirAccess::make_dir_recursive_absolute(data_dir_cache);
++		// Where user:// is, for the wrapper to tell Enginehost (EngineHost.reportSaveDirectory).
++		setenv("ENGINEHOST_USER_DATA_DIR", data_dir_cache.utf8().get_data(), 1);
 +		return data_dir_cache;
 +	}
 +	if (enginehost_save_path && enginehost_save_path[0] != 0) {
@@ -201,13 +291,15 @@ index 92dc5f909f63fab8a48e0389ac35c14c97c9600c..587000540673024814c101d8fd842721
 +		}
 +		DirAccess::make_dir_recursive_absolute(data_dir);
 +		data_dir_cache = data_dir;
++		// Where user:// is, for the wrapper to tell Enginehost (EngineHost.reportSaveDirectory).
++		setenv("ENGINEHOST_USER_DATA_DIR", data_dir_cache.utf8().get_data(), 1);
 +		return data_dir_cache;
 +	}
 +
  	String data_dir = godot_io_java->get_user_data_dir();
  	if (!data_dir.is_empty()) {
  		data_dir_cache = _remove_symlink(data_dir);
-@@ -730,6 +810,29 @@ void OS_Android::benchmark_dump() {
+@@ -730,6 +818,29 @@ void OS_Android::benchmark_dump() {
  }
  
  bool OS_Android::_check_internal_feature_support(const String &p_feature) {

@@ -1,7 +1,8 @@
 {
   "bundleId": "dev.enginehost.godot.v45.v1",
   "engine": "godot",
-  "pluginVersion": "1.0.5",
+  "pluginVersion": "1.0.9",
+  "lockdown": true,
   "apiVersion": 1,
   "entrypoint": "dev.enginehost.plugin.godot.GodotEnginePlugin",
   "origin": "https://github.com/droidtop/enginehost-godot-plugin",
