@@ -9,6 +9,12 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "0.1.0"
+        // Every Enginehost core ships arm64-v8a and x86_64 and nothing else (Droidtop/tracker#646),
+        // and Enginehost's signing job refuses any other ABI (Droidtop/tracker#27). Godot 4.0 and
+        // 4.1's library from Maven carries armeabi-v7a and x86 too; this keeps them out of the APK.
+        ndk {
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
