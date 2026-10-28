@@ -31,7 +31,9 @@ jobs:
         with:
           ref: master
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          # GITHUB_TOKEN may not push a merge that touches upstream's own
+          # .github/workflows files; SYNC_UPSTREAM_PAT (workflow scope) can.
+          token: ${{ secrets.SYNC_UPSTREAM_PAT || secrets.GITHUB_TOKEN }}
 
       - name: Sync master with upstream
         run: |
@@ -69,8 +71,9 @@ jobs:
           title="Upstream sync: master merge could not be pushed"
           existing=$(gh issue list --repo "${{ github.repository }}" --state open --search "in:title \"$title\"" --json title -q ".[] | select(.title == \"$title\") | .title")
           if [ -n "$existing" ]; then
-            echo "issue already open, not filing a duplicate"
-            exit 0
+            # Still a failed sync: the run goes red every day until it is fixed.
+            echo "issue already open, not filing a duplicate; the sync still failed"
+            exit 1
           fi
           cat > /tmp/issue-body.md <<BODY
           The scheduled upstream-sync workflow merged
