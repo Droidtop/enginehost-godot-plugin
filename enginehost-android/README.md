@@ -246,3 +246,11 @@ Its `line.json` declares no upstream (`"upstream": null`, `"sharedPatches": fals
 is plugin-core alone, and its build fetches spine-runtimes and godot-cpp at the commits the
 line's `bundle-metadata.json` pins under `source`, the one place those pins are written.
 spine-runtimes' history is far too large to carry in this repository as a line's upstream.
+
+## 32-bit engines only on request, never published (2026-10-30)
+
+Official Godot cores ship arm64-v8a and x86_64 only (Droidtop/tracker#646). For someone who needs a
+32-bit engine, the owner kept a way to build one: dispatch `enginehost-android.yml` on a line with
+`include_32_bit` on. CI then also compiles the runtime for `arm32` and `x86_32`, and gradle adds
+armeabi-v7a and x86 (`-Penginehost32Bit=true`). The build ends as the unsigned bundle inputs artifact
+and is never signed or published. Enginehost's signing gate refuses 32-bit libraries in any case.
