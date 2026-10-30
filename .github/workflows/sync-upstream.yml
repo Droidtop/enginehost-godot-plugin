@@ -31,9 +31,9 @@ jobs:
         with:
           ref: master
           fetch-depth: 0
-          # GITHUB_TOKEN may not push a merge that touches upstream's own
-          # .github/workflows files; SYNC_UPSTREAM_PAT (workflow scope) can.
-          token: ${{ secrets.SYNC_UPSTREAM_PAT || secrets.GITHUB_TOKEN }}
+          # A write deploy key: unlike GITHUB_TOKEN it may push a merge that
+          # changes upstream's own .github/workflows files.
+          ssh-key: ${{ secrets.SYNC_DEPLOY_KEY }}
 
       - name: Sync master with upstream
         run: |
@@ -78,13 +78,11 @@ jobs:
           cat > /tmp/issue-body.md <<BODY
           The scheduled upstream-sync workflow merged
           upstream/master into master locally but could
-          not push the result -- most likely upstream's own
-          .github/workflows/** changed and the default GITHUB_TOKEN is not
-          allowed to update workflow files (see run log). master on
-          GitHub is untouched. Run: $RUN_URL
+          not push the result (see run log). The push uses the deploy key in
+          the SYNC_DEPLOY_KEY secret; a rejection means that key is missing,
+          revoked or read-only. master on GitHub is untouched. Run: $RUN_URL
 
-          Needs a PAT with the workflow scope (e.g. a repo secret such as
-          SYNC_UPSTREAM_PAT) used as the checkout token, or a manual:
+          Restore the key, or merge by hand:
           \`\`\`
           git fetch upstream master
           git checkout master
