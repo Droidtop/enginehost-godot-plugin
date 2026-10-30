@@ -14,6 +14,8 @@ android {
         // 4.1's library from Maven carries armeabi-v7a and x86 too; this keeps them out of the APK.
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")
+            // A 32-bit engine on request (-Penginehost32Bit=true) adds these; it is never signed or published.
+            if (project.findProperty("enginehost32Bit") == "true") abiFilters += listOf("armeabi-v7a", "x86")
         }
     }
     compileOptions {
@@ -44,6 +46,10 @@ android {
                 "lib/arm64-v8a/libc++_shared.so",
                 "lib/x86_64/libgodot_android.so",
                 "lib/x86_64/libc++_shared.so",
+                "lib/armeabi-v7a/libgodot_android.so",
+                "lib/armeabi-v7a/libc++_shared.so",
+                "lib/x86/libgodot_android.so",
+                "lib/x86/libc++_shared.so",
             )
         }
     }
