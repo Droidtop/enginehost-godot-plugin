@@ -23,6 +23,14 @@ on:
         description: "Release tag (default: derived from the bundle id; testing adds -testing)"
         type: string
         default: ""
+      include_32_bit:
+        description: >-
+          Also build armeabi-v7a and x86, for someone who needs a 32-bit engine.
+          Such a build is never signed or published: it ends as the unsigned
+          bundle inputs artifact (owner, 2026-10-30, Droidtop/tracker#646).
+          Official releases are 64-bit only.
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -33,7 +41,8 @@ permissions:
 # could email five failures for one problem. Keyed on the ref, so branches
 # and PRs never cancel each other.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # A 32-bit build on request has its own group, so it never cancels the line's own build.
+  group: ${{ github.workflow }}-${{ github.ref }}${{ inputs.include_32_bit && '-32-bit' || '' }}
   cancel-in-progress: true
 
 jobs:
@@ -48,11 +57,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - arch: arm64
-            abi: arm64-v8a
-          - arch: x86_64
-            abi: x86_64
+        # arm32 and x86_32 only for a 32-bit engine on request (include_32_bit), never published.
+        include: ${{ fromJSON(inputs.include_32_bit && '[{"arch":"arm64","abi":"arm64-v8a"},{"arch":"x86_64","abi":"x86_64"},{"arch":"arm32","abi":"armeabi-v7a"},{"arch":"x86_32","abi":"x86"}]' || '[{"arch":"arm64","abi":"arm64-v8a"},{"arch":"x86_64","abi":"x86_64"}]') }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -188,7 +194,7 @@ jobs:
           gradle-version: "8.13"
       - name: Put the spine-enabled runtime where the APK picks it up
         run: |
-          for abi in arm64-v8a x86_64; do
+          for abi in arm64-v8a x86_64 ${{ inputs.include_32_bit && 'armeabi-v7a x86' || '' }}; do
             mkdir -p "enginehost-android/app/src/main/jniLibs/$abi"
             cp "spine-runtime/$abi/libgodot_android.so" "enginehost-android/app/src/main/jniLibs/$abi/"
             cp "spine-runtime/$abi/libc++_shared.so" "enginehost-android/app/src/main/jniLibs/$abi/"
@@ -198,7 +204,7 @@ jobs:
         with:
           path: enginehost-android/build/enginehost
       - name: Build embedded Godot runtime APK
-        run: gradle -p enginehost-android :app:assembleDebug --no-daemon --stacktrace
+        run: gradle -p enginehost-android :app:assembleDebug ${{ inputs.include_32_bit && '-Penginehost32Bit=true' || '' }} --no-daemon --stacktrace
       - name: Verify the APK packaged the spine-enabled runtime
         run: |
           python3 - <<'PY'
@@ -206,7 +212,7 @@ jobs:
           apk = zipfile.ZipFile('enginehost-android/app/build/outputs/apk/debug/app-debug.apk')
           # Every ABI, so a bundle cannot ship one spine-enabled runtime and
           # one stock one and fail only on the other kind of device.
-          for abi in ('arm64-v8a', 'x86_64'):
+          for abi in ('arm64-v8a', 'x86_64') + (('armeabi-v7a', 'x86') if '${{ inputs.include_32_bit }}' == 'true' else ()):
               packed = hashlib.sha256(apk.read(f'lib/{abi}/libgodot_android.so')).hexdigest()
               built = hashlib.sha256(pathlib.Path(f'spine-runtime/{abi}/libgodot_android.so').read_bytes()).hexdigest()
               if packed != built:
@@ -254,6 +260,8 @@ jobs:
     # Enginehost's one signing mechanism, pinned by commit: the key never
     # shares a runner with the build.
     needs: bundle
+    # A 32-bit engine built on request is never signed, so nothing after it runs either.
+    if: ${{ !inputs.include_32_bit }}
     permissions:
       contents: read
     uses: Droidtop/enginehost/.github/workflows/sign-engine-bundle.yml@40913f9e6e34c6cc262d6ee18fa83138504a026a
