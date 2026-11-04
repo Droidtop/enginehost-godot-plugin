@@ -237,9 +237,9 @@ jobs:
     if: ${{ !inputs.include_32_bit }}
     permissions:
       contents: read
-    uses: Droidtop/enginehost/.github/workflows/sign-engine-bundle.yml@40913f9e6e34c6cc262d6ee18fa83138504a026a
+    uses: Droidtop/enginehost/.github/workflows/sign-engine-bundle.yml@2ed281661659807afc01f71a72fe4ed29866c48e
     with:
-      tooling-sha: 40913f9e6e34c6cc262d6ee18fa83138504a026a
+      tooling-sha: 2ed281661659807afc01f71a72fe4ed29866c48e
       unsigned-artifact: ${{ needs.bundle.outputs.bundle-id }}-unsigned
       bundle: ${{ needs.bundle.outputs.bundle-id }}.enginehost.tar.xz
       artifact-name: ${{ needs.bundle.outputs.bundle-id }}
@@ -248,7 +248,6 @@ jobs:
       # (docs/security/2026-09-27-pre-1.0-stable-guard.md).
       channel: ${{ inputs.channel }}
     secrets:
-      ENGINEHOST_SIGNING_KEY_PEM: ${{ secrets.ENGINEHOST_SIGNING_KEY_PEM }}
       ENGINEHOST_CERTIFICATE_KEY_PEM: ${{ secrets.ENGINEHOST_CERTIFICATE_KEY_PEM }}
 
   publish:
@@ -261,9 +260,9 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish }}
     permissions:
       contents: write
-    uses: Droidtop/enginehost/.github/workflows/publish-engine-bundle.yml@40913f9e6e34c6cc262d6ee18fa83138504a026a
+    uses: Droidtop/enginehost/.github/workflows/publish-engine-bundle.yml@2ed281661659807afc01f71a72fe4ed29866c48e
     with:
-      tooling-sha: 40913f9e6e34c6cc262d6ee18fa83138504a026a
+      tooling-sha: 2ed281661659807afc01f71a72fe4ed29866c48e
       artifact-name: ${{ needs.bundle.outputs.bundle-id }}
       channel: ${{ inputs.channel }}
       tag: ${{ inputs.tag }}
@@ -280,9 +279,9 @@ jobs:
     if: ${{ github.event_name == 'push' }}
     permissions:
       contents: write
-    uses: Droidtop/enginehost/.github/workflows/publish-engine-bundle.yml@40913f9e6e34c6cc262d6ee18fa83138504a026a
+    uses: Droidtop/enginehost/.github/workflows/publish-engine-bundle.yml@2ed281661659807afc01f71a72fe4ed29866c48e
     with:
-      tooling-sha: 40913f9e6e34c6cc262d6ee18fa83138504a026a
+      tooling-sha: 2ed281661659807afc01f71a72fe4ed29866c48e
       artifact-name: ${{ needs.bundle.outputs.bundle-id }}
       channel: unstable
     secrets:
